@@ -1,0 +1,1337 @@
+HEALTH ENGINE
+ARCHITECTURE DOCUMENT
+Offline-First Astronaut Health Monitoring Desktop Application
+
+Document type: Software Architecture Document (SAD)
+Version: 1.0
+Date: 2026-11-14
+Status: Proposed architecture — implementation decisions pending validation
+Language: English
+Primary requirements source: Health_Engine_Project_Technical_Specification.txt, v0.1
+Implementation evidence source: teammate report supplied by the project team and accompanying UI screenshots
+
+======================================================================
+0. PURPOSE, AUTHORITY AND HOW TO READ THIS DOCUMENT
+======================================================================
+
+0.1 Purpose
+
+This document defines the proposed technical architecture for Health Engine. It translates the project's Technical Specification into a concrete system structure, describes the current experimental implementation reported by a teammate, identifies algorithms and processing stages that can be used, and defines how the new application should be assembled.
+
+The document is intended for the coding agent and developers who will implement the application. It is not a medical protocol, a NASA-approved specification, or evidence that the current prototype is clinically validated.
+
+0.2 Requirements authority
+
+The primary source of product and technical requirements is:
+
+  Health_Engine_Project_Technical_Specification.txt
+  Version 0.1, dated 2026-11-14
+
+This Architecture Document interprets that specification for implementation. If a conflict is found, the Technical Specification is the primary requirements reference unless the project owner explicitly approves a change.
+
+The teammate's report and screenshots are evidence of experiments and prototype behavior. They are NOT a replacement for the Technical Specification and must not silently redefine the product.
+
+0.3 Evidence labels used in this document
+
+[REPORTED IMPLEMENTED]
+The teammate's report says this functionality exists in the branch feat/desktop-native-v0.1, commit 7dc3420. The report is not an independent code audit.
+
+[OBSERVED IN SCREENSHOTS]
+The supplied screenshots visibly show this UI or behavior. A screenshot does not prove internal correctness.
+
+[REPORTED RESULT — UNVERIFIED]
+A numerical or functional result is stated in the teammate's report but has not been independently validated against a reference instrument or test protocol.
+
+[PROPOSED]
+Recommended design for the new application. It is not a claim that this feature already exists.
+
+[REQUIRES VALIDATION]
+Must be tested, reviewed, or confirmed before being treated as a reliable capability.
+
+0.4 Non-negotiable product principles
+
+- Health Engine is a monitoring and screening-support application, not a diagnostic system.
+- It must not determine fitness for duty, prescribe treatment, or replace certified medical devices.
+- A numeric estimate must not be shown as a valid measurement if its signal quality is insufficient.
+- The source and provenance of every value must be explicit: camera-derived, external-device-derived, self-reported, calculated, imported, simulated, or unavailable.
+- Local operation must not depend on internet connectivity.
+- Raw video is processed locally and is not transmitted or retained by default.
+- Unknown, missing, stale, or invalid data must never be presented as a healthy/GOOD state.
+- The interface must guide the astronaut through the procedure without requiring knowledge of signal processing.
+- Gamification may reward completion of safe procedures, never a favorable health result.
+
+======================================================================
+1. SYSTEM SCOPE AND PRODUCT BOUNDARIES
+======================================================================
+
+1.1 Product definition
+
+Health Engine is an offline-first desktop application for routine crew health checks and health-data review in a simulated or future mission environment.
+
+The system consists of:
+- A desktop application and mission-oriented user interface.
+- A local camera acquisition and computer-vision pipeline.
+- An rPPG signal-processing pipeline for experimental pulse estimation.
+- A local database and audit/event records.
+- Crew profiles, daily check workflows, journal entries, tasks and alerts.
+- Local exports and a future synchronization abstraction.
+
+1.2 Primary user workflows
+
+A. Crew member health check
+1. The astronaut opens their assigned profile or starts an assigned check.
+2. The application explains what is about to be measured and how to position themselves.
+3. The application checks camera availability, face presence, lighting, movement and frame quality.
+4. The application collects a time series.
+5. The signal processor either returns a quality-qualified estimate or rejects the attempt with a clear reason.
+6. The astronaut reviews the result and explicitly saves it.
+7. The record is stored locally with method, source, quality and validity metadata.
+
+B. Crew overview and review
+1. An authorized user opens HOME / crew overview.
+2. The application displays the latest available check state and timestamp for each configured crew member.
+3. Missing or low-quality data is shown as UNKNOWN / INSUFFICIENT DATA.
+4. Authorized reviewers can open a profile, inspect history and review alerts.
+
+C. Journal entry
+1. The astronaut records sleep, mood and approved self-reported information.
+2. The application labels these values as self-reported, not camera-measured.
+3. The entry is saved locally and can be included in a report according to access policy.
+
+D. Offline operation
+1. The application performs supported checks and stores records without internet.
+2. Approved records are added to an outbound queue.
+3. When a configured connection is available, the sync service transfers queued records.
+4. Records are marked synchronized only after receiver acknowledgement.
+
+1.3 Explicit non-goals for the initial release
+
+- Medical diagnosis or treatment.
+- Medical-grade accuracy claims for webcam rPPG.
+- Automatic fitness-for-duty decisions.
+- Continuous 24/7 monitoring unless separately implemented and validated.
+- Default raw-video storage or transmission.
+- Guaranteed YUY2, uncompressed capture, fixed exposure, or unrestricted camera control.
+- Real satellite-modem integration without a defined hardware and protocol interface.
+- A custom machine-learning diagnostic model.
+- Replacing a blood-pressure cuff, pulse oximeter, ECG, or other certified instrument.
+
+======================================================================
+2. CURRENT PROTOTYPE: WHAT THE TEAMMATE REPORTS
+======================================================================
+
+This section records the supplied teammate report and screenshots without treating reported claims as independently verified facts.
+
+2.1 Reported repository state
+
+The teammate reports:
+- Commit: 7dc3420
+- Branch: feat/desktop-native-v0.1
+- A dataset guide exists at docs/datasets.md.
+- A camera overlay/HUD was implemented and optimized after an earlier frame-rate regression.
+
+The repository itself was not supplied for code inspection in this task. The statements below therefore describe the report, not a source-code audit.
+
+2.2 Face-based rPPG path
+
+[REPORTED IMPLEMENTED]
+The report describes the following path:
+1. MediaPipe Face Landmarker/face mesh detects 478 facial landmarks.
+2. Facial landmarks are used to identify forehead and cheek skin regions.
+3. The system extracts mean RGB values from the selected skin areas per frame.
+4. It creates a time series from these per-frame color measurements.
+5. It applies signal processing in a pulse-frequency band reported as 0.7–2.2 Hz (42–132 BPM).
+6. It evaluates spectral concentration/peak prominence, agreement between POS and CHROM, and consistency between the first and second halves of the recording.
+7. It can reject a result and show a reason when the signal is insufficient.
+
+[REPORTED RESULT — UNVERIFIED]
+The report says the face-based pipeline currently rejects its own measurements because a concentration/quality value is around 0.2–0.35 while the configured threshold is 0.5. The report says a codec issue was checked and excluded.
+
+The report's key conclusion is that the face pipeline exists but is not yet producing an accepted, sufficiently high-quality result in the tested setup.
+
+2.3 Camera and HUD
+
+[REPORTED IMPLEMENTED]
+The report describes:
+- A countdown timer overlaid on the camera image.
+- A progress bar overlaid on the image.
+- A green border when the signal is being collected and an amber border when something interferes.
+- On-screen instructions such as “stand in frame”, “leave only one person in frame”, and a finger instruction.
+- A visible rejection reason, including example values for POS, CHROM and GREEN.
+- An optimization after an earlier overlay implementation reduced frame rate to approximately 18 FPS. The report says the revised overlay returned performance to approximately 30 FPS.
+
+[OBSERVED IN SCREENSHOTS]
+The screenshots show:
+- A dark desktop UI with Camera and Journal tabs.
+- A camera preview with forehead and cheek regions marked.
+- A pulse display, signal-quality percentage, SNR and elapsed time.
+- A waveform plot and a history table.
+- Controls to stop the camera, start/stop measurement, run a demo measurement and save a result.
+- A journal form with pulse, blood pressure, temperature, sleep, mood and symptom fields.
+- Demo-data controls and CSV export.
+- A warning that the displayed reference values are demonstrational and not a medical norm.
+
+The screenshots also show a confusing mixed workflow: the camera screen is primarily face-based, while one instruction tells the user to put a finger against the camera. This must be separated into distinct measurement modes or removed from the main face workflow.
+
+2.4 Finger-based PPG
+
+[REPORTED RESULT — UNVERIFIED]
+The teammate reports that a finger-based optical method produces repeatable values around 83–88 BPM and that a reference-device comparison remains to be completed.
+
+The report describes this as light passing through the finger, unlike face rPPG, which measures reflected light changes from facial skin.
+
+Architecture decision:
+- Finger PPG is NOT part of the default face-rPPG workflow.
+- It may exist as a separate experimental mode only if the camera/sensor hardware and illumination method are explicitly supported.
+- It must have its own instructions, acquisition configuration, signal-quality checks, provenance and validation results.
+- Do not present the reported 83–88 BPM range as validated accuracy.
+- Do not require the astronaut to put a finger against a standard webcam unless a safe, repeatable optical arrangement has been designed and tested.
+
+2.5 Dataset research reported by the teammate
+
+The report lists these candidate datasets and access notes:
+- PURE (TU Ilmenau): reported as 10 subjects, 60 one-minute videos, 640x480, 30 Hz, with pulse-oximeter reference; application/request process is reported.
+- UBFC-rPPG: reported as 42 webcam videos using a Logitech C920 and reference pulse data; the report suggests contacting the authors.
+- MMPD: reported as 33 subjects and 11 hours of phone recordings with varied lighting and skin tones; a mini version is reported as 48 GB and access by email.
+- LGI-PPGI: reported as 25 subjects and 100 videos including sport/outdoor conditions; the report states CC BY 4.0 and that distribution is currently closed.
+- iBVP: reported as RGB plus thermal data, approximately 400 GB, with restricted access conditions.
+
+These dataset details and access conditions are copied as claims from the teammate report and have not been independently verified in this document. Before downloading or using any dataset, verify its official source, current availability, license, consent conditions, allowed use, citation requirements and redistribution restrictions.
+
+The teammate's proposed priority is PURE, then UBFC-rPPG, then MMPD. This is a reasonable investigation order for a small proof of concept, not a guaranteed ranking of scientific suitability.
+
+2.6 What the current prototype does NOT prove
+
+The report and screenshots do not establish:
+- Clinical accuracy or medical-grade reliability.
+- Robust performance across skin tones, lighting, cameras, motion, glasses or environmental conditions.
+- That 30 FPS is maintained on all target machines.
+- That the reported pulse value is valid when the quality score is low.
+- That finger PPG is validated against a reference instrument.
+- That camera capture is uncompressed or uses YUY2.
+- That the app has a complete multi-astronaut workflow, role-based security, durable offline synchronization or validated alert logic.
+- That the current UI satisfies all project workflows.
+
+======================================================================
+3. PROPOSED HIGH-LEVEL ARCHITECTURE
+======================================================================
+
+3.1 Recommended technology baseline
+
+The Technical Specification proposes the following stack. Retain it as the baseline unless the team identifies a concrete blocker:
+
+Desktop shell and system integration:
+- Tauri
+- Rust
+
+Frontend:
+- React
+- TypeScript
+
+Camera and signal processing:
+- Python
+- OpenCV
+- MediaPipe for face landmarks/ROI geometry
+- NumPy for numerical arrays
+- SciPy for signal processing where appropriate
+
+Persistence:
+- SQLite
+- Versioned schema migrations
+
+Local process communication:
+- Versioned JSON messages over standard input/output for the first implementation, or a local IPC transport if later justified.
+
+Charts:
+- A frontend charting library selected by the UI implementation team. Charts must represent real stored values and units; empty datasets must show an empty state, not fabricated axes or sample points.
+
+3.2 Logical component diagram
+
++---------------------------------------------------------------+
+|                    HEALTH ENGINE DESKTOP                      |
+|                                                               |
+|  +------------------- React / TypeScript ------------------+  |
+|  | HOME | HEALTH CHECK | DETAIL MONITORING | JOURNAL | WIKI |  |
+|  | Crew cards | Profile | Charts | Tasks | Alerts | Settings|  |
+|  +--------------------------+-------------------------------+  |
+|                             | Tauri commands/events            |
+|  +--------------------------v-------------------------------+  |
+|  |                     Rust Application Core                |  |
+|  | Session orchestration | Configuration | Access checks    |  |
+|  | SQLite repository     | Task/reminder service             |  |
+|  | Alert service         | Export service                     |  |
+|  | Sync queue            | Storage monitoring                |  |
+|  +----------+--------------------------+--------------------+  |
+|             | versioned local IPC       |                      |
+|  +----------v-----------+        +------v------------------+  |
+|  | Python CV Worker     |        | Local SQLite Database   |  |
+|  | Camera capture       |        | Crew / sessions         |  |
+|  | Face detection       |        | Metrics / journal       |  |
+|  | ROI extraction       |        | Tasks / alerts          |  |
+|  | rPPG algorithms      |        | Sync queue / audit      |  |
+|  | Quality assessment  |        +-------------------------+  |
+|  +----------+-----------+                                   |
+|             |                                               |
+|       OS camera API                                         |
+|             |                                               |
+|       Camera device                                          |
++---------------------------------------------------------------+
+                              |
+                              | Approved, minimized records only
+                              v
+                    Future Ground Endpoint
+                  (transport adapter / gateway)
+
+3.3 Component responsibilities
+
+A. React / TypeScript UI
+- Displays the crew overview, profile pages, health-check workflow, journal, tasks, alerts, Wiki and settings.
+- Shows camera preview and measurement status received from the application core.
+- Displays quality, validity, source and method metadata next to every result.
+- Does not access the database or filesystem directly.
+- Does not implement medical thresholds or signal-processing logic in the browser layer.
+- Must never fabricate measurement values to fill charts or cards.
+
+B. Rust application core
+- Owns application lifecycle and session orchestration.
+- Starts, supervises and stops the Python worker.
+- Exposes narrow, validated commands and events to the UI.
+- Stores configuration and coordinates SQLite transactions.
+- Applies role/permission checks to sensitive operations.
+- Runs reminders, alert state transitions and storage checks while the app is running.
+- Maintains the outbound synchronization queue.
+- Produces exports and monthly archive packages.
+- Handles worker crashes, timeouts and graceful shutdown.
+
+C. Python CV worker
+- Opens the selected camera using supported capture APIs.
+- Reports actual capture mode and timestamps.
+- Processes frames locally.
+- Detects/tracks face landmarks.
+- Builds skin ROIs and extracts color time series.
+- Runs one or more rPPG methods.
+- Computes signal-quality metrics and validity decisions.
+- Returns estimates, diagnostics and explicit rejection reasons.
+- Does not write directly to the authoritative database.
+- Does not transmit frames or measurements to external services.
+
+D. SQLite persistence
+- Stores the local source of truth.
+- Stores measurements, their provenance, quality metadata and algorithm version.
+- Stores self-reported journal entries separately from camera-derived measurements.
+- Stores alert/task/sync/audit events.
+- Uses transactions and schema migrations.
+- Does not silently delete health records.
+
+E. Sync service
+- Queues approved records.
+- Sends only the minimum approved payload.
+- Requires receiver acknowledgement before marking records synchronized.
+- Uses stable IDs and idempotency keys.
+- Supports retry/backoff and offline operation.
+- Does not assume that a satellite link is equivalent to ordinary internet.
+
+3.4 Architectural boundaries
+
+- The UI is a presentation layer, not the source of truth.
+- Rust is the application orchestration and persistence boundary.
+- Python is a replaceable signal-processing worker.
+- SQLite is the local record authority.
+- Network transport is an adapter and must not be required for local operation.
+- Algorithm outputs are proposals until they pass quality gates; the application core decides whether they can become valid saved metrics.
+
+======================================================================
+4. CAMERA ACQUISITION ARCHITECTURE
+======================================================================
+
+4.1 Camera discovery and selection
+
+[PROPOSED]
+1. Enumerate cameras exposed by the operating system.
+2. Display device name/identifier and availability.
+3. Let the user or authorized configuration select a device.
+4. Query supported combinations of:
+   - pixel format,
+   - resolution,
+   - nominal frame rate,
+   - exposure/gain controls where exposed by the API.
+5. Request a supported mode appropriate for rPPG.
+6. Read back and record the actual negotiated mode.
+7. Start a short camera readiness check before the health-check countdown.
+
+Do not assume a camera supports YUY2. Do not claim “100% quality” or “uncompressed” unless the capture backend reports and verifies the actual format. The selected capture format is a device capability, not a universal application setting.
+
+4.2 Capture metadata
+
+For each session, record:
+- camera device identifier (avoid unnecessary personal device identifiers),
+- capture backend/API,
+- negotiated pixel format,
+- width and height,
+- effective frame rate measured from timestamps,
+- dropped-frame estimate if available,
+- start/end timestamps,
+- exposure/gain values only if available and relevant,
+- worker and algorithm versions.
+
+4.3 Timestamping and frame buffering
+
+- Timestamp frames at acquisition using a monotonic clock for interval calculations.
+- Associate session start/end with UTC timestamps for persistence.
+- Avoid assuming that requested FPS equals actual FPS.
+- Use a bounded in-memory frame buffer.
+- Apply backpressure or frame dropping deliberately if processing cannot keep up; report the effective sampling rate.
+- Do not let UI rendering block the capture loop.
+- Release camera resources on stop, failure, worker exit and application shutdown.
+
+4.4 Camera readiness checks
+
+Before starting a measurement, check:
+- Camera is connected and accessible.
+- A frame can be acquired.
+- Exactly one face is present for the face mode.
+- Face size and position are within the accepted capture region.
+- Forehead and cheek ROIs are sufficiently visible.
+- Lighting is not severely underexposed/overexposed.
+- Motion is within a configurable quality limit.
+- Effective frame rate is sufficient for the selected algorithm.
+- The user has been shown clear positioning instructions.
+
+If readiness checks fail, do not start the measurement countdown. Explain the actionable issue in plain language.
+
+======================================================================
+5. FACE rPPG PROCESSING PIPELINE
+======================================================================
+
+5.1 Recommended processing sequence
+
+Camera frames
+  -> frame timestamps and capture metadata
+  -> face detection / landmark tracking
+  -> forehead and cheek ROI geometry
+  -> skin-pixel filtering / ROI validity
+  -> per-frame RGB statistics
+  -> detrending / normalization
+  -> rPPG algorithm(s)
+  -> band-pass filtering
+  -> pulse-frequency estimation
+  -> signal-quality assessment
+  -> validity gate
+  -> result or explicit rejection
+  -> structured result returned to Rust
+
+5.2 Face detection and landmarks
+
+[REPORTED IMPLEMENTED]
+The teammate reports using MediaPipe with 478 facial landmarks.
+
+[PROPOSED]
+Keep MediaPipe as the initial landmark provider if its performance and licensing fit the project. Use landmarks to define stable forehead and left/right cheek regions. The system should track regions across frames rather than treating each frame as an unrelated face detection.
+
+Do not perform identity recognition. Landmark detection is used for geometry and ROI placement only.
+
+5.3 Region of interest (ROI) selection
+
+Initial candidate regions:
+- Forehead.
+- Left cheek.
+- Right cheek.
+
+ROI rules:
+- Exclude eyes, eyebrows, lips, hair, facial hair where possible, glasses frames, strong specular highlights and background pixels.
+- Use skin masks or color/landmark constraints where practical.
+- Reject an ROI if too few usable pixels remain.
+- Track ROI motion between frames.
+- Prefer robust aggregation (e.g. trimmed mean or median) over an unfiltered mean when outliers are present.
+- Preserve separate per-ROI signals so the pipeline can compare them and reject inconsistent regions.
+
+The teammate report says it extracts average RGB values from forehead and cheek regions. This is a suitable starting point, but it should be tested against robust pixel selection and ROI weighting.
+
+5.4 Color time-series construction
+
+For each valid frame and each ROI:
+- Compute representative R, G and B statistics.
+- Record the frame timestamp.
+- Normalize for slow baseline changes where appropriate.
+- Track missing frames and invalid ROI intervals.
+- Avoid interpolating long gaps as if they were real signal.
+- Keep a clear mapping from frame time to sample time.
+
+A sequence of RGB values is the input signal. A single photograph cannot produce pulse rate using rPPG.
+
+5.5 Candidate algorithms
+
+The teammate report names POS and CHROM and also shows a GREEN diagnostic value. The following are appropriate candidate methods for a staged implementation:
+
+A. GREEN channel baseline
+- Use the green-channel variation as a simple baseline.
+- It is easy to implement and useful for debugging.
+- It is sensitive to lighting, motion and camera processing.
+- It should not be treated as the only robust production method.
+
+B. CHROM
+- Chrominance-based method using combinations of normalized color channels to reduce some illumination variation.
+- Use as one candidate rPPG extraction algorithm.
+- Validate the exact implementation, normalization, windowing and filter settings.
+- Do not assume it removes all motion or lighting artifacts.
+
+C. POS (Plane-Orthogonal-to-Skin)
+- Uses normalized RGB signals and a projection intended to emphasize pulsatile variation while suppressing some common-mode changes.
+- Use as a second candidate algorithm.
+- Compare its output with CHROM on the same frame sequence.
+- Validate implementation details against the selected reference paper/code and document the version.
+
+D. Optional later candidates
+- ICA/PCA-based approaches may be investigated for comparison.
+- Learning-based rPPG models should be deferred until the project has suitable datasets, compute budget, licensing review and a defensible validation plan.
+- Do not add multiple algorithms merely to make the architecture look sophisticated. Start with GREEN as a diagnostic baseline plus POS and CHROM as candidate methods.
+
+5.6 Filtering and pulse estimation
+
+[REPORTED IMPLEMENTED]
+The report describes a band of 0.7–2.2 Hz (42–132 BPM).
+
+[PROPOSED]
+Treat this as the teammate's current experimental configuration, not a medically approved physiological range. Make the band configurable and document why it was selected for the demonstration.
+
+A typical processing path may include:
+- Uniform or timestamp-aware sampling/resampling when appropriate.
+- Detrending or removal of slow illumination drift.
+- Windowing to reduce spectral leakage.
+- A validated band-pass filter.
+- Frequency-domain analysis (e.g. FFT/Welch PSD) or a time-domain estimator.
+- Peak selection only when the peak is sufficiently distinct and stable.
+- Conversion from frequency in Hz to BPM.
+
+Do not calculate BPM from an arbitrary largest spectral peak without checking:
+- whether the peak is inside the configured band,
+- whether the signal has sufficient duration,
+- whether the peak is separated from surrounding spectral energy,
+- whether independent methods/ROIs agree,
+- whether the estimate is stable across time windows.
+
+5.7 Signal-quality assessment and gating
+
+This is a critical system component. A pulse number is not a valid result merely because an algorithm returned a number.
+
+Proposed quality dimensions:
+- Effective frame rate and frame timestamp regularity.
+- Total usable signal duration.
+- Face/ROI presence ratio.
+- ROI pixel count and skin-pixel proportion.
+- Motion magnitude / landmark stability.
+- Lighting stability and clipping/underexposure.
+- Signal-to-noise ratio or spectral peak prominence.
+- Agreement between POS and CHROM.
+- Agreement across usable ROIs.
+- Consistency between adjacent or split time windows.
+- Missing-frame and dropped-frame ratio.
+
+[REPORTED IMPLEMENTED]
+The teammate report says it compares POS and CHROM, evaluates spectral concentration, checks first-half/second-half consistency and can reject low-quality signals.
+
+[REPORTED RESULT — UNVERIFIED]
+The report says concentration values around 0.2–0.35 are below a threshold of 0.5, causing rejection.
+
+Architecture requirement:
+- Do not copy the 0.5 threshold into the new system as a universal truth.
+- Define quality features independently and make thresholds configurable for experiments.
+- Calibrate thresholds against labelled/reference data and document the validation set.
+- Return both a quality score and its component diagnostics.
+- Keep “quality score” distinct from “probability the pulse is correct” unless a statistically calibrated model supports that interpretation.
+
+Suggested output states:
+- READY: capture conditions acceptable; measurement can begin.
+- COLLECTING: signal window is accumulating.
+- PROCESSING: algorithm is evaluating the collected signal.
+- VALID_ESTIMATE: all required quality gates passed.
+- INCONCLUSIVE: data collected but one or more quality gates failed.
+- ABORTED: user or system stopped the session.
+- DEVICE_ERROR: camera or worker failed.
+
+If the result is INCONCLUSIVE:
+- Do not show a large numeric BPM as if it were a successful measurement.
+- Show “No reliable estimate obtained” or equivalent.
+- Show the main reason(s), such as movement, poor lighting, insufficient duration or unstable signal.
+- Offer a limited retry path only if safe and appropriate.
+- Preserve diagnostic metadata if the user chooses to save an attempt record, but distinguish it from a valid health metric.
+
+5.8 Measurement duration
+
+The teammate HUD reportedly uses a countdown such as 38 seconds. Treat this as a prototype UI value, not a fixed validated requirement.
+
+[PROPOSED]
+- Configure capture duration based on the chosen algorithm and validation evidence.
+- Show elapsed/remaining time and progress.
+- Permit early rejection if conditions are clearly invalid.
+- Avoid shortening the window just to make the demo appear faster.
+- Store actual usable duration, not only the requested duration.
+
+5.9 Result payload from Python worker
+
+A successful or inconclusive processing response should include:
+- protocol_version
+- request_id
+- session_id
+- status
+- metric_type = pulse_rate
+- value_bpm (nullable unless valid)
+- validity_status
+- quality_score (if defined)
+- quality_components
+- rejection_reasons[]
+- algorithm_names[]
+- algorithm_versions[]
+- capture_metadata
+- start/end timestamps
+- usable_duration_seconds
+- effective_fps
+- diagnostic summary (not raw video)
+- worker_version
+
+Rust validates the payload and persists it transactionally. A malformed, stale or mismatched response must be rejected.
+
+======================================================================
+6. OPTIONAL FINGER PPG MODE
+======================================================================
+
+6.1 Separate mode, not a hidden step in face mode
+
+Finger PPG is a different optical arrangement and user action. It must not be mixed into the face rPPG flow.
+
+The current screenshots show face regions while the teammate report also describes a “put finger against the lens” prompt. This is confusing. The new UI must choose one explicit mode before acquisition:
+
+- Face rPPG (camera observes facial skin).
+- Finger PPG (only if a supported illumination/sensor arrangement is implemented and validated).
+
+6.2 Requirements before enabling finger mode
+
+- Specify the exact hardware arrangement: camera, illumination source, optical path and contact method.
+- Ensure the method does not create unsafe bright-light exposure or heat/contact risk.
+- Ensure the user can reproduce the same positioning.
+- Implement its own frame/signal extraction path.
+- Implement independent quality checks and result provenance.
+- Compare against a suitable reference instrument over repeated trials.
+- Document device-specific limitations.
+
+6.3 Current status
+
+[REPORTED RESULT — UNVERIFIED]
+The teammate reports repeatable finger-mode readings around 83–88 BPM. The report explicitly says comparison with a reference instrument remains to be done.
+
+Therefore:
+- Keep finger mode disabled, hidden behind an experimental flag, or clearly labelled EXPERIMENTAL until validation is complete.
+- Do not use its values to determine crew status or trigger health alerts.
+- Do not merge finger-mode data with face-rPPG history without preserving method/source labels.
+
+======================================================================
+7. USER INTERFACE ARCHITECTURE AND WORKFLOW
+======================================================================
+
+7.1 Navigation structure
+
+Recommended main navigation, aligned with the Technical Specification:
+- HOME — crew overview, mission clock, due checks, alerts and sync state.
+- HEALTH ACHIEVE — assigned check tasks and approved completion-based achievements.
+- DETAIL MONITORING — crew profiles, measurements, history and trends.
+- HEALTH ENGINE WIKI — instructions, metric explanations, quality limitations and system help.
+- SETTINGS — version, export formats, storage and permitted operational configuration.
+
+The camera measurement workflow should be reachable from the astronaut profile or a clearly named HEALTH CHECK action. Do not make the camera tab the entire product.
+
+7.2 Health-check screen
+
+The screen should communicate one step at a time:
+
+Step 1 — Before measurement
+- State the measurement method: Face rPPG.
+- Explain that it estimates pulse from subtle skin-colour changes.
+- State that it is not a diagnosis and may fail under poor conditions.
+- Show a short preparation checklist.
+
+Step 2 — Camera readiness
+- Show camera connection and selected device.
+- Show a live preview.
+- Show a simple face-position guide.
+- Show lighting/motion/face detection status in plain language.
+- Do not expose raw algorithm names as the primary user instruction.
+
+Step 3 — Signal collection
+- Show countdown/progress overlay.
+- Show concise instruction such as “Keep your face still and look toward the camera.”
+- Use a green/amber visual state with a text label.
+- Keep the camera preview visually dominant.
+- Avoid showing a BPM estimate before the validity gate passes.
+
+Step 4 — Result
+- If valid: show pulse estimate, unit, method, quality, timestamp and limitations.
+- If inconclusive: show no valid BPM result, explain why, and offer a retry if appropriate.
+- Clearly distinguish “measurement completed” from “valid estimate obtained”.
+
+Step 5 — Save
+- Explicit Save action.
+- Show what will be stored and its source.
+- A cancelled or unsaved result must not be silently represented as a saved record.
+
+7.3 HOME / crew overview
+
+Each crew card should show:
+- Crew identifier/name.
+- Last completed check timestamp.
+- Check completion state.
+- Data validity state.
+- Pending task state.
+- Alert indicator if applicable.
+
+Do not encode all states only by color. Use text labels and accessible contrast.
+
+7.4 DETAIL MONITORING
+
+The profile should show:
+- Latest valid pulse measurement and its method.
+- Latest inconclusive attempt separately, if useful.
+- Signal-quality metadata and capture conditions.
+- Historical trend only when enough valid records exist.
+- Journal entries with self-reported provenance.
+- Alerts and task history.
+- Clear missing/stale/unknown states.
+
+Charts must not display synthetic 0–1 axes or placeholder data when no measurements exist. Show an explicit empty state such as “No valid measurements recorded yet.”
+
+7.5 Journal
+
+The current screenshot includes pulse, blood pressure, temperature, sleep, mood and symptoms. Preserve the concept but improve provenance:
+
+- Pulse from camera must be stored as camera-derived and include algorithm/quality metadata.
+- Blood pressure must be labelled as manually entered or imported from an approved device; a webcam cannot measure it.
+- Temperature must be labelled by its actual source; do not imply the camera measures body temperature unless a validated sensor is integrated.
+- Sleep duration and mood are self-reported unless another validated source is connected.
+- Symptoms are self-reported.
+- Demo data must be visibly marked DEMO and excluded from operational summaries by default.
+
+7.6 Gamification
+
+- Reward completing required check procedures, not obtaining a “good” value.
+- Abnormal or inconclusive results must not reduce achievement status.
+- Do not encourage repeated measurements until a favorable result appears.
+- Keep alerts visually separate from achievements.
+- Avoid public rankings or shame-based mechanics.
+- Additional tasks must be safe, approved and not automatically prescribe exercise after an abnormal result.
+
+7.7 Wiki
+
+Provide short, task-oriented explanations:
+- What the measurement does.
+- What the camera can and cannot detect.
+- How face rPPG works at a high level.
+- Why a measurement can be inconclusive.
+- What signal quality means.
+- What each data source label means.
+- How to enter journal data.
+- How alerts and synchronization work.
+
+======================================================================
+8. DATA MODEL AND STORAGE
+======================================================================
+
+8.1 Core entities
+
+Astronaut
+- astronaut_id (stable unique ID)
+- crew_identifier
+- display_name
+- role
+- profile_status
+- created_at_utc
+- updated_at_utc
+
+MeasurementSession
+- session_id
+- astronaut_id
+- started_at_utc
+- ended_at_utc
+- method (FACE_RPPG / FINGER_PPG / EXTERNAL_DEVICE / OTHER)
+- session_status
+- camera_device_id
+- capture_backend
+- capture_pixel_format
+- capture_width
+- capture_height
+- effective_fps
+- usable_duration_seconds
+- algorithm_name/version
+- worker_version
+
+MetricRecord
+- metric_id
+- session_id (nullable for non-session imported/manual metrics)
+- astronaut_id
+- metric_type
+- value (nullable when invalid/inconclusive)
+- unit
+- source_type (CAMERA_DERIVED / EXTERNAL_DEVICE / SELF_REPORTED / CALCULATED / IMPORTED / SIMULATED)
+- validity_status (VALID / INCONCLUSIVE / INVALID / UNAVAILABLE)
+- quality_score (nullable)
+- quality_metadata_json
+- method_name
+- method_version
+- measured_at_utc
+- created_at_utc
+
+JournalEntry
+- entry_id
+- astronaut_id
+- entry_type (SLEEP / MOOD / SYMPTOM / OTHER_APPROVED)
+- value
+- unit_or_scale
+- source_type = SELF_REPORTED unless explicitly imported
+- recorded_at_utc
+
+Task
+- task_id
+- astronaut_id
+- task_type
+- due_at_utc
+- status
+- completed_at_utc
+- rule_version
+
+Alert
+- alert_id
+- astronaut_id (nullable for system alerts)
+- severity
+- rule_id
+- rule_version
+- source_record_id
+- created_at_utc
+- acknowledged_at_utc
+- acknowledged_by
+- resolved_at_utc
+- status
+
+SyncQueueItem
+- item_id
+- record_type
+- record_id
+- payload_version
+- created_at_utc
+- status
+- retry_count
+- next_retry_at_utc
+- last_error_code
+- acknowledged_at_utc
+
+AuditEvent
+- event_id
+- actor_id
+- event_type
+- target_type
+- target_id
+- timestamp_utc
+- details_json
+
+MissionConfiguration
+- mission_epoch_utc
+- crew circadian schedules
+- reminder schedule
+- configured devices
+- approved rule-set version
+- sync endpoint profile (secret references only; no plaintext secrets)
+
+8.2 Data integrity rules
+
+- Use stable UUIDs or another collision-resistant ID scheme.
+- Store timestamps in UTC.
+- Store units explicitly.
+- Keep invalid/inconclusive attempts distinguishable from valid metrics.
+- Never overwrite historical measurements with a later value.
+- Store algorithm and rule versions for traceability.
+- Use database transactions for session result + metric record + audit event where applicable.
+- Use schema migrations and backup before incompatible migrations.
+- Do not store raw frames/video in the database.
+
+8.3 Monthly exports
+
+Keep SQLite as the primary local source of truth.
+
+Suggested export directory:
+ASTRONAUTS-HEALTH-RESULTS-MONTH/
+  YYYY-MM/
+    crew-summary.json
+    measurements.json
+    journal-summary.json
+    audit-log.json
+    report.pdf
+
+The actual database should reside in the operating system's application-data directory, not necessarily beside the executable. Monthly exports are snapshots, not the only copy of the data.
+
+8.4 Demo data
+
+- Demo records must carry source_type = SIMULATED.
+- UI must show a persistent DEMO marker while demo mode is active.
+- Demo values must not be mixed with real records in charts or crew status unless the user explicitly selects a demo view.
+- Export must clearly identify simulated records.
+- A “remove demo” action must remove only demo records and must not affect real records.
+
+======================================================================
+9. STATUS RULES, ALERTS AND HUMAN REVIEW
+======================================================================
+
+9.1 Status model
+
+Possible workflow states:
+- GOOD: valid, sufficiently recent data exists and no configured review rule is active.
+- MODERATE: a configured non-urgent review condition or incomplete workflow exists.
+- LOW: a configured rule requires attention.
+- REVIEW REQUIRED: a configured high-priority rule requires timely human review.
+- UNKNOWN: data is missing, stale, invalid or inconclusive.
+
+Exact thresholds and clinical interpretation are not defined by the current sources. Do not invent thresholds. Any rule that interprets physiological values must be sourced, reviewed and versioned by qualified domain reviewers before use.
+
+9.2 Quality alerts versus health flags
+
+Keep separate:
+- Measurement quality warning: the capture was not reliable.
+- Routine reminder: a scheduled task is due.
+- Data review flag: a configured rule indicates a record should be reviewed.
+- High-priority alert: only a specifically approved rule may create this.
+- System alert: camera, storage, database, clock or synchronization fault.
+
+A low-quality rPPG attempt is not evidence of a health problem. It is evidence that the measurement could not be trusted.
+
+9.3 Audio alerts
+
+- Use bounded, configurable audio notifications only for approved high-priority events.
+- Require explicit acknowledgement.
+- Keep a persistent visual alert after audio acknowledgement.
+- Log creation, acknowledgement and resolution separately.
+- Do not use an endless loop.
+- Opening a profile is not equivalent to acknowledgement or medical resolution.
+
+======================================================================
+10. OFFLINE-FIRST OPERATION AND SYNCHRONIZATION
+======================================================================
+
+10.1 Offline capabilities
+
+Without network access, the application should still:
+- Launch and display local data.
+- Run supported camera checks.
+- Run local signal processing.
+- Save records to SQLite.
+- Display reminders while the app is running.
+- Display locally generated alerts.
+- Generate exports.
+- Queue approved records for later synchronization.
+
+This is not a guarantee of 24/7 monitoring. The machine, application, camera, permissions and power must remain available.
+
+10.2 Sync state machine
+
+LOCAL_ONLY
+  -> PENDING
+  -> SENDING
+  -> ACKNOWLEDGED / SYNCED
+
+Failure path:
+  SENDING -> RETRY_WAIT -> PENDING
+
+Rules:
+- Stable record ID and idempotency key.
+- Versioned payload schema.
+- Encryption in transit.
+- Receiver acknowledgement required.
+- Bounded exponential retry/backoff.
+- Preserve local data on every failure.
+- Display last successful sync and pending count.
+- Never mark a record SYNCED merely because the send request was issued.
+
+10.3 Transport abstraction
+
+Define an interface such as:
+- enqueue(record)
+- prepare_batch(limit, priority)
+- send(batch)
+- process_acknowledgement(response)
+- retry_failed_items()
+- get_sync_status()
+
+Initial implementation can use a local mock transport to demonstrate offline queueing and reconnection. A real ground endpoint or satellite gateway is out of scope until its API, authentication, protocol, bandwidth and hardware are known.
+
+======================================================================
+11. SECURITY, PRIVACY AND AUDIT
+======================================================================
+
+- Process raw camera frames locally.
+- Do not save or transmit raw video by default.
+- Keep Python worker permissions narrow.
+- Validate all UI-to-Rust commands and Rust-to-Python messages.
+- Use OS file permissions and encryption according to the target deployment policy.
+- Protect exports and backups as sensitive health information.
+- Avoid sensitive health details in ordinary application logs.
+- Apply role-based access to profiles, exports and alert acknowledgement.
+- Audit exports, record changes, alert acknowledgements and sync transitions.
+- Keep secrets out of source code and plaintext configuration.
+- Define key storage, recovery and account policy before operational deployment.
+
+The teammate report says no images/video are saved and only values are written after the user presses Save. Preserve this as the intended default behavior, but verify it in the implementation and test temporary buffers, crash logs and diagnostic output.
+
+======================================================================
+12. TIME, REMINDERS AND MISSION CONTEXT
+======================================================================
+
+- Persist event timestamps in UTC.
+- Use monotonic time for measuring intervals within a process.
+- Display UTC in the mission status bar.
+- Calculate DOY from UTC date.
+- Calculate MET from configured mission epoch.
+- Configure circadian phase per crew member or schedule; do not assume one schedule for all crew.
+- Indicate when clock synchronization is unknown or degraded.
+- Do not imply sub-second accuracy merely by displaying decimal fractions.
+- Reminders should be based on configured schedules and must record due/completed state.
+- Reminders run only while the application/host scheduling service is active unless a supported OS background service is implemented.
+
+======================================================================
+13. PERFORMANCE AND RELIABILITY REQUIREMENTS
+======================================================================
+
+- Camera acquisition must not be blocked by UI rendering.
+- The worker must report actual FPS from timestamps.
+- Measure CPU and memory use on the target machine.
+- Keep the frame buffer bounded.
+- Do not let chart updates run at camera frame rate unless required.
+- Draw HUD elements efficiently; the teammate report says caching/pre-rendering overlay text restored approximately 30 FPS after an earlier 18 FPS regression. Reuse this optimization idea, then benchmark it independently.
+- Stop and release camera resources reliably.
+- Handle worker timeout, crash and malformed messages.
+- Do not silently convert a failed measurement into a valid result.
+- Provide a clear error state when the database write fails.
+- Preserve recoverable session metadata if persistence fails, but do not claim the record was saved.
+- Do not let exports or synchronization interrupt active capture.
+
+======================================================================
+14. TESTING AND VALIDATION STRATEGY
+======================================================================
+
+14.1 Unit tests
+
+Rust:
+- State transitions for sessions, alerts and sync queue.
+- Data validation and persistence.
+- UTC/DOY/MET calculations.
+- Role/access checks.
+- Export serialization.
+
+Python:
+- ROI geometry and mask behavior.
+- RGB extraction.
+- Filtering and frequency estimation.
+- Quality feature calculation.
+- Invalid/missing frame handling.
+- Worker protocol validation.
+
+Frontend:
+- Empty states.
+- Quality/validity labels.
+- Demo-data separation.
+- Accessible alert and task states.
+- Correct distinction between self-reported and measured values.
+
+14.2 Integration tests
+
+- Start/stop camera session.
+- Camera unavailable and camera disconnected during capture.
+- Unsupported capture mode and fallback.
+- Python worker crash and restart.
+- Valid and inconclusive result payloads.
+- Save/reload from SQLite.
+- Offline operation with network disabled.
+- Sync acknowledgement and retry.
+- Export with mixed provenance.
+- App restart while pending sync records exist.
+
+14.3 rPPG validation
+
+The rPPG pipeline must be evaluated against a suitable reference device and labelled data.
+
+Recommended staged approach:
+1. Validate the signal-processing implementation using known synthetic signals.
+2. Obtain access to an appropriate public dataset under its actual license and usage conditions.
+3. Reproduce a baseline on that dataset with documented preprocessing.
+4. Test the exact target webcam and capture backend.
+5. Run repeated controlled recordings with a reference pulse instrument.
+6. Evaluate error, failure rate, repeatability and quality-gate behavior.
+7. Test different lighting, motion, camera settings and participant characteristics.
+8. Report limitations and avoid extrapolating beyond tested conditions.
+
+Do not tune and report performance on the same small sample without disclosing that limitation. Keep a separate validation set where feasible.
+
+14.4 Dataset handling
+
+The teammate report lists PURE, UBFC-rPPG, MMPD, LGI-PPGI and iBVP. Before use:
+- Verify the official dataset page and current access status.
+- Read license and consent terms.
+- Check whether commercial/competition use is permitted.
+- Check redistribution restrictions.
+- Preserve citation requirements.
+- Record dataset version and preprocessing steps.
+
+Dataset availability and access information in the teammate report is not guaranteed to remain current.
+
+14.5 Acceptance gates
+
+Gate A — Camera acquisition:
+- Enumerates and opens a supported camera.
+- Reports actual format, resolution and effective FPS.
+- Captures timestamped frames.
+
+Gate B — Signal pipeline:
+- Detects face and usable ROIs.
+- Produces a diagnostic time series.
+- Returns valid estimate only when quality gates pass.
+- Correctly rejects deliberately poor captures.
+
+Gate C — Persistence and workflow:
+- Stores method, source, validity and quality metadata.
+- Reloads saved records after restart.
+- Separates demo, self-reported and camera-derived values.
+
+Gate D — Product usability:
+- A first-time user can complete or understand why they cannot complete a health check without needing to understand POS/CHROM/SNR.
+- No misleading numeric result is shown for an inconclusive session.
+- Empty charts and missing data are clearly explained.
+
+Gate E — Offline resilience:
+- Core local workflow works without internet.
+- Queue survives restart.
+- Sync state changes only after acknowledgement.
+
+======================================================================
+15. IMPLEMENTATION PLAN
+======================================================================
+
+Phase 0 — Architecture and repository decision
+- Treat the Technical Specification as the primary requirements source.
+- Review the teammate repository separately if access is granted.
+- Do not copy its overall UI or architecture by default.
+- Extract only modules that pass code review and tests.
+- Create a clean project structure around the agreed boundaries.
+
+Phase 1 — Camera and rPPG proof of concept (highest priority)
+- Implement camera discovery and mode reporting.
+- Implement timestamped acquisition.
+- Implement MediaPipe face landmarks.
+- Implement forehead/cheek ROI extraction.
+- Implement GREEN baseline, then POS and CHROM.
+- Implement quality metrics and validity gate.
+- Build a small test harness before the full product UI.
+- Compare results with a reference instrument.
+
+Phase 2 — Desktop application skeleton
+- Tauri + Rust application core.
+- React/TypeScript navigation and design system.
+- Python worker lifecycle and versioned IPC.
+- SQLite schema and migrations.
+- Camera health-check screen with understandable steps.
+
+Phase 3 — Record and profile workflow
+- Astronaut profiles.
+- Measurement sessions and MetricRecord persistence.
+- Journal entries with provenance.
+- Profile detail and history.
+- Correct empty states and chart behavior.
+
+Phase 4 — Mission operations
+- UTC / DOY / MET / circadian display.
+- Daily reminders and task state.
+- Wiki/help.
+- Alert workflow with acknowledgement.
+- Achievement UI based on task completion only.
+
+Phase 5 — Offline resilience and reporting
+- Storage monitoring and backup/export.
+- Monthly archive generation.
+- PDF/JSON/TXT exports.
+- Sync queue with mock transport and simulated reconnection.
+- Audit events and permission checks.
+
+Phase 6 — Hardening
+- Performance testing on target hardware.
+- Camera compatibility matrix.
+- Crash/recovery tests.
+- Data integrity and backup restore tests.
+- Security review.
+- Documentation of measured limitations.
+
+Do not prioritize gamification, satellite integration or elaborate dashboards ahead of proving the camera signal pipeline and safe validity gating.
+
+======================================================================
+16. PROPOSED REPOSITORY STRUCTURE
+======================================================================
+
+A possible structure (adapt to the selected Tauri project template):
+
+health-engine/
+  README.md
+  docs/
+    technical-specification.txt
+    architecture-document.txt
+    datasets.md
+    measurement-method.md
+    validation-plan.md
+    decisions/
+  src/                         # React / TypeScript frontend
+    app/
+    components/
+    features/
+      home/
+      health-check/
+      monitoring/
+      journal/
+      achievements/
+      alerts/
+      wiki/
+      settings/
+    services/                   # typed frontend command wrappers
+    types/
+  src-tauri/                    # Tauri + Rust
+    src/
+      commands/
+      services/
+      persistence/
+      sync/
+      alerts/
+      exports/
+      config/
+      main.rs
+    migrations/
+    capabilities/
+  python-worker/
+    worker/
+      camera/
+      face/
+      roi/
+      signals/
+      algorithms/
+      quality/
+      protocol/
+    tests/
+    requirements.txt
+  tests/
+    integration/
+    fixtures/
+  data/                         # development-only; production uses OS app data dir
+
+This is a proposed organization, not a requirement to use every folder. Keep module boundaries clear and avoid creating empty abstractions without a current use case.
+
+======================================================================
+17. OPEN TECHNICAL DECISIONS
+======================================================================
+
+The following must be confirmed before implementation is considered stable:
+
+1. Target operating system(s) and versions.
+2. Target computer model, CPU/GPU and memory.
+3. Camera make/model and actual supported capture modes.
+4. Capture API/backend per operating system.
+5. Whether camera controls such as exposure and gain are available.
+6. Actual rPPG window duration and filter configuration.
+7. Exact definitions and calibration of quality metrics.
+8. Which POS/CHROM implementations and reference versions will be used.
+9. Reference instrument for pulse validation.
+10. Dataset licenses and access status.
+11. Whether finger PPG has suitable hardware and a safe optical arrangement.
+12. Whether blood pressure and temperature are manually entered or sourced from external devices.
+13. Crew identity/access model and data visibility policy.
+14. Mission epoch and per-crew circadian schedules.
+15. Reminder cadence and escalation rules.
+16. Approved health screening rules and authoritative sources.
+17. Ground endpoint API, authentication and acknowledgement format.
+18. Data retention, encryption and key management policy.
+19. Whether the hackathon MVP requires only simulated sync or a real endpoint.
+20. Whether the app is expected to run continuously or only for scheduled/user-initiated checks.
+
+======================================================================
+18. IMPLEMENTATION INSTRUCTIONS FOR THE CODING AGENT
+======================================================================
+
+Use this document and the project's Technical Specification as the requirements baseline.
+
+Before coding:
+1. Read the complete Technical Specification.
+2. Read this Architecture Document.
+3. Inspect the teammate report and screenshots as evidence of prior experiments.
+4. If the teammate repository is separately provided, inspect it read-only first. Do not assume its architecture or code is correct.
+5. Produce a short implementation plan identifying modules to reuse, rewrite, or defer.
+6. List unresolved decisions that block safe implementation.
+
+When coding:
+- Implement the system boundaries described here.
+- Keep the Python signal-processing worker independent from the UI.
+- Use versioned IPC messages and explicit session IDs.
+- Preserve measurement provenance and quality metadata end-to-end.
+- Never show invalid BPM as a valid result.
+- Keep face rPPG and finger PPG separate.
+- Keep demo data separate from real data.
+- Do not invent medical thresholds or claim NASA approval.
+- Do not claim YUY2, uncompressed capture, 24/7 monitoring or satellite connectivity unless actually verified.
+- Build and test the camera/rPPG proof of concept before expanding secondary features.
+- Document every deliberate deviation from this architecture.
+
+The coding agent must not:
+- Treat screenshots as proof of algorithm correctness.
+- Treat the teammate's reported pulse values as validated.
+- copy the current interface as the final product design.
+- invent missing APIs, hardware capabilities, medical thresholds or NASA requirements.
+- replace inconclusive results with a plausible-looking number.
+- silently store or transmit raw video.
+
+======================================================================
+19. SOURCE TRACEABILITY
+======================================================================
+
+Primary project requirements:
+- Health_Engine_Project_Technical_Specification.txt, v0.1, 2026-11-14.
+- Product concept, scope and non-goals: Sections 1–2.
+- Functional requirements: Section 4.
+- UI/navigation: Section 5.
+- Proposed technology architecture: Section 6.
+- Status/gamification/alerts: Sections 7–8.
+- Offline/sync: Section 9.
+- Storage/security/time/lifecycle: Sections 10–13.
+- Failure handling/MVP/acceptance: Sections 14–16.
+
+Teammate implementation report:
+- Commit 7dc3420, branch feat/desktop-native-v0.1 (as reported).
+- Dataset notes and access suggestions.
+- MediaPipe 478-landmark face processing.
+- Forehead/cheek RGB extraction.
+- GREEN, POS and CHROM signal analysis.
+- Experimental 0.7–2.2 Hz band.
+- Quality/concentration threshold behavior.
+- HUD overlay and reported FPS optimization.
+- Finger PPG readings 83–88 BPM pending reference-device comparison.
+- Claims about local-only processing and saving only after explicit user action.
+
+Visual evidence:
+- Supplied screenshots of Camera and Journal tabs.
+- Face landmarks/ROIs, pulse panel, signal-quality display, waveform, history table, journal fields and demo/export controls.
+
+All teammate implementation details are report-derived unless independently confirmed by source-code review or reproducible tests.
+
+======================================================================
+20. DOCUMENT STATUS
+======================================================================
+
+This is Architecture Document v1.0 — Proposed.
+
+It establishes the recommended technical direction and implementation boundaries based on the project's Technical Specification, the supplied teammate report and the screenshots.
+
+It does not certify the current prototype, establish medical validity, or claim NASA endorsement/compliance.
+
+Next expected inputs:
+- Teammate's architecture proposal, if any.
+- Repository/code access for a separate implementation audit.
+- Target hardware and camera details.
+- Results of reference-instrument validation.
+
+End of document.

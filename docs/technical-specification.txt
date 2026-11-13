@@ -1,0 +1,831 @@
+PROJECT TECHNICAL SPECIFICATION HEALTH ENGINE Offline-First Astronaut
+Health Monitoring Desktop Application Document type: Preliminary Project
+Technical Specification (PTS) Version: 0.1 Date: 2026-11-14 Status:
+Draft — pending review of the teammate’s architecture
+
+====================================================================== 1.
+PROJECT OVERVIEW
+======================================================================
+
+1.1 Product concept
+
+Health Engine is an offline-first desktop application intended to
+support routine health-status checks and health-data review for a crew
+of astronauts. It uses a connected or built-in camera as an input source
+for experimental camera-based physiological signal analysis (rPPG),
+stores records locally, presents crew status in a clear operational
+interface, reminds crew members to complete scheduled checks, and
+synchronizes selected records with a ground-side system when a
+communication link is available.
+
+The product is a monitoring and screening support tool. It is NOT a
+medical diagnostic system, does not replace certified medical equipment,
+and must not independently determine fitness for duty or prescribe
+treatment.
+
+1.2 Core product principles
+
+-   Local-first operation: essential application functions remain
+    available without an internet or satellite connection.
+-   Explicit data provenance: distinguish measured, self-reported,
+    calculated, imported, simulated, and unavailable values.
+-   Honest signal quality: do not display an estimated vital sign as
+    reliable when the source signal is insufficient.
+-   Human oversight: abnormal indicators create a review task for crew
+    or authorized medical personnel; they do not constitute a diagnosis.
+-   Resilient synchronization: data remains stored locally until
+    successful, acknowledged transfer.
+-   Minimal operational UI: prioritize status, pending checks, alerts,
+    and understandable explanations.
+-   Safety over gamification: game mechanics must never shame, coerce,
+    conceal, or override health-related warnings.
+
+1.3 Target environment
+
+Initial target: a desktop computer on a spacecraft or in a simulated
+mission environment, with a camera, local storage, display, and optional
+network or satellite communication gateway.
+
+The application can only collect camera data while the computer,
+application, camera, and required permissions are operational. “24/7
+monitoring” must not be claimed unless continuous capture, power, camera
+availability, and background execution have been implemented and
+validated. The initial MVP should describe itself as scheduled or
+user-initiated monitoring.
+
+======================================================================
+2. GOALS AND NON-GOALS
+======================================================================
+
+2.1 Goals
+
+-   Provide a crew overview with the latest available health-check
+    status.
+-   Guide an astronaut through a short, repeatable health-check
+    workflow.
+-   Acquire camera frames and attempt rPPG signal extraction.
+-   Show a pulse estimate only when signal-quality criteria are met.
+-   Record sleep and mood information where required by the selected
+    workflow.
+-   Provide understandable explanations of metrics, limitations, and
+    risk flags.
+-   Remind crew members about scheduled checks.
+-   Preserve records locally in SQLite and organize monthly
+    exports/archives.
+-   Synchronize approved records when a communication channel is
+    available.
+-   Export selected records in PDF, JSON, and TXT formats.
+-   Provide a simple, operationally focused interface.
+
+2.2 Non-goals for the initial release
+
+-   Medical diagnosis, treatment recommendations, or fitness-for-duty
+    decisions.
+-   Replacing ECG, pulse oximetry, blood pressure monitors, or other
+    certified medical instruments.
+-   Guaranteed measurement accuracy across all cameras, skin tones,
+    lighting, motion conditions, or environments.
+-   Guaranteed access to undocumented camera controls or hardware
+    settings.
+-   Streaming raw video to Earth by default.
+-   Implementing a real satellite modem or spacecraft communications
+    protocol without a defined hardware/interface specification.
+-   Automatic deletion of historical health records.
+-   Unsupervised machine-learning diagnosis.
+
+======================================================================
+3. USERS AND ROLES
+======================================================================
+
+3.1 Astronaut / Crew member
+
+-   Views their own profile and assigned check tasks.
+-   Completes scheduled measurements and self-reported entries.
+-   Reads explanations and instructions.
+-   Sees their own historical measurements and status, subject to
+    mission policy.
+
+3.2 Crew medical officer / authorized reviewer
+
+-   Reviews crew overview and flagged records.
+-   Opens detailed astronaut profiles.
+-   Reviews measurement quality, trends, and data provenance.
+-   Acknowledges and documents alert review where permitted.
+
+3.3 Mission administrator
+
+-   Manages crew profiles and mission configuration.
+-   Configures mission start time, circadian schedule, reminder policy,
+    and synchronization endpoint through an authorized configuration
+    process.
+-   Reviews synchronization status and storage warnings.
+-   Controls access and export permissions.
+
+Role-based access may be simplified for the hackathon prototype, but the
+data model should not assume that every user has unrestricted access to
+every crew member’s detailed health data.
+
+======================================================================
+4. FUNCTIONAL REQUIREMENTS
+======================================================================
+
+FR-001. Crew overview The HOME screen shall display all configured
+astronaut profiles, each with name or crew identifier, latest check
+timestamp, completion state, and a clear status indicator.
+
+FR-002. Profile detail Selecting a crew profile shall open a detailed
+page containing the latest available measurements, measurement
+timestamps, signal quality, recent history, sleep/mood entries where
+enabled, assigned tasks, and explanations.
+
+FR-003. Camera discovery The application shall enumerate cameras
+available to the operating system and allow selection of an available
+camera. It shall show permission, connection, and device errors clearly.
+
+FR-004. Camera configuration The acquisition component shall request
+supported camera modes and select the best validated mode available for
+the device. It may attempt to request YUY2 or another uncompressed
+format when supported.
+
+The application must not assume that it can force a camera to provide
+uncompressed frames, disable all compression, set “quality to 100%”, or
+control every driver-level setting. These controls depend on camera
+hardware, driver, operating system, and capture API. The actual
+negotiated format, resolution, frame rate, and pixel format must be
+recorded and displayed.
+
+FR-005. Video acquisition The application shall acquire a sequence of
+timestamped frames for a measurement session. A still image alone is
+insufficient for rPPG.
+
+FR-006. rPPG processing The Python computer-vision component shall: -
+Receive frames or a supported local video stream. - Detect and track a
+face. - Select suitable skin regions of interest (ROI), such as forehead
+and cheeks. - Extract per-frame color statistics. - Build a time-series
+signal. - Apply an appropriate rPPG method and signal filtering. -
+Estimate pulse rate only when quality checks pass. - Return the
+estimate, confidence/quality indicators, processing metadata, and
+failure reason where applicable.
+
+FR-007. Measurement quality The system shall evaluate at least the
+availability of sufficient frames, effective frame rate, signal
+stability, motion/artifact level, and usable signal duration.
+Low-quality measurements shall be marked invalid or inconclusive rather
+than converted into a misleading numeric result.
+
+FR-008. Measurement result A measurement record shall include astronaut
+ID, start/end timestamps, metric value where valid, unit,
+method/version, source device, signal-quality metadata, validity state,
+and any applicable limitations.
+
+FR-009. Daily check reminders The application shall show a due/pending
+reminder for each astronaut based on the configured schedule. Reminder
+completion must be recorded.
+
+FR-010. Tasks and gamification The astronaut profile may show: - One
+mandatory health-check task. - One or two additional approved wellness
+or operational tasks. - Completion state and achievement-style visual
+feedback.
+
+Task count and presentation may adapt to approved status rules.
+Gamification must not encourage unsafe exercise, conceal a warning,
+penalize an astronaut for an abnormal result, or incentivize repeated
+measurements until a desired value appears.
+
+FR-011. Status categories The UI may display categories such as GOOD,
+MODERATE, LOW, and REVIEW REQUIRED only when their definitions and
+thresholds have been approved by the project/domain reviewers. The
+categories must be described as screening or workflow indicators, not
+diagnoses. Missing or low-quality data must be shown as UNKNOWN /
+INSUFFICIENT DATA, not as GOOD.
+
+FR-012. Alert handling A significant configured warning shall be visible
+on the crew overview and in the relevant astronaut profile. An audible
+alert may be used for high-priority events, subject to a safe and
+configurable alert policy.
+
+Audible alerts must: - Have a defined severity and escalation policy. -
+Be acknowledgeable by an authorized user. - Avoid an unbounded or
+endlessly repeating audio loop. - Continue to show a persistent visual
+alert after audio is acknowledged. - Record creation, acknowledgement,
+and resolution timestamps. - Avoid exposing sensitive details through
+sound or public notifications.
+
+The original concept of playing audio continuously until someone opens
+the profile is not recommended. Opening a profile is not equivalent to
+reviewing or resolving an alert. Use explicit acknowledgement and
+escalation instead.
+
+FR-013. Health Engine Wiki The application shall provide concise help
+pages explaining: - What each displayed metric means. - How camera-based
+pulse estimation works at a high level. - What affects measurement
+quality. - What each status category means. - What the application can
+and cannot conclude. - How to complete required checks. - How reminders,
+tasks, alerts, and synchronization work.
+
+FR-014. Local storage All measurement and journal records shall be saved
+locally in SQLite. Records shall not be silently deleted by normal
+application operation.
+
+FR-015. Monthly organization The application shall organize monthly
+health-result exports or archive packages under a directory named:
+
+ASTRONAUTS-HEALTH-RESULTS-MONTH/
+
+A recommended structure is:
+
+HealthEngine/ database/ health_engine.sqlite
+ASTRONAUTS-HEALTH-RESULTS-MONTH/ YYYY-MM/ crew-summary.json
+measurements.json audit-log.json report.pdf exports/ logs/ backups/
+
+The SQLite database remains the primary local source of truth. Monthly
+files are generated snapshots/exports and must not be treated as the
+only copy. The actual application data directory should use the
+operating system’s approved per-user or application-data location. The
+README shall explain where this directory is located on each supported
+operating system.
+
+FR-016. Storage monitoring The application shall monitor available disk
+space and the approximate size of its own data directory. It shall warn
+before storage becomes critically low. It shall not automatically delete
+health records. It may offer an authorized backup/export workflow.
+
+FR-017. Synchronization The application shall maintain an outbound queue
+for approved records. Each queued item shall have a stable unique
+identifier, creation timestamp, payload version, status, retry metadata,
+and acknowledgement state.
+
+Synchronization shall support: - Offline queuing. - Retry with
+backoff. - Batch transfer. - Acknowledgement from the receiving
+endpoint. - Idempotent processing to prevent duplicate records. -
+Integrity checks. - Encryption in transit. - Clear display of last
+successful sync and pending item count.
+
+FR-018. Data minimization Raw video shall be processed locally and not
+transmitted by default. The default outbound payload should contain only
+required derived measurements and metadata. Any raw-video retention or
+transfer requires a separately approved use case, consent/policy, access
+control, and storage plan.
+
+FR-019. Exports Authorized users shall be able to export selected
+records in PDF, JSON, and TXT formats. Export operations shall indicate
+the selected date range, astronaut, generation time, and whether values
+are measured, self-reported, or calculated.
+
+FR-020. Settings The initial Settings page shall provide read-only
+application version and export-format selection, plus necessary
+operational information such as storage and synchronization status.
+Settings must not expose unsafe hardware or mission-critical controls
+without authorization.
+
+======================================================================
+5. USER INTERFACE AND NAVIGATION
+======================================================================
+
+5.1 Visual direction
+
+The interface should use a restrained aerospace/mission-control visual
+language inspired by the clarity and information hierarchy of Warframe’s
+interface, without copying its visual assets or sacrificing usability.
+
+Requirements: - Fast access to the crew overview. - Clear typography and
+strong information hierarchy. - Monospace typography for mission time
+and telemetry-style values. - Consistent status colors with text labels;
+color must not be the only communication method. - Avoid decorative
+animation that competes with health alerts. - Support the target display
+resolution and scaling.
+
+5.2 Main layout
+
+A. Top mission status bar
+
+Display four time/context fields:
+
+1.  UTC (Zulu Time) Format example: 2026-11-14 | 18:58:00.4 UTC Source:
+    system clock normalized to UTC. Precision shown must not imply
+    measurement accuracy beyond the system clock’s actual
+    synchronization quality.
+
+2.  DOY (Day of Year) Format example: DOY 318 Derived from the UTC date
+    using the selected calendar convention.
+
+3.  MET (Mission Elapsed Time) Format example: MET +042d 14:20:05
+    Derived from the configured mission epoch/start timestamp. Mission
+    start time must be configured, not hardcoded as a universal value.
+
+4.  Crew Circadian Phase Example: 06:00–21:30 UTC / DAY SHIFT Example:
+    21:30–06:00 UTC / SLEEP CYCLE The schedule is a mission
+    configuration. It should not be assumed that every astronaut shares
+    the same sleep schedule.
+
+All four fields shall use a monospace font. The UI should indicate when
+the system clock is not synchronized or its accuracy is unknown.
+
+B. Left navigation
+
+1.  HOME Crew overview, mission time bar, reminders, alerts, and
+    synchronization status.
+
+2.  HEALTH ACHIEVE Achievement-style task view, completion history, and
+    approved wellness challenges. Avoid competitive rankings unless
+    explicitly approved by mission policy.
+
+3.  DETAIL MONITORING Crew cards and detailed astronaut profiles.
+
+4.  HEALTH ENGINE WIKI Concise explanations, instructions, metric
+    definitions, and limitations. A NASA-inspired book icon may be used
+    only as a visual motif; do not imply NASA endorsement or official
+    affiliation.
+
+5.  SETTINGS Application version, export formats, storage status, and
+    permitted operational settings.
+
+5.3 HOME screen content
+
+-   Crew member cards.
+-   Latest check state and timestamp.
+-   Pending mandatory checks.
+-   High-priority alerts.
+-   Last successful synchronization.
+-   Pending synchronization count.
+-   Persistent notice explaining the actual monitoring scope and
+    reporting schedule.
+
+The notice must not claim 24/7 collection unless the feature is
+genuinely running continuously. If checks are scheduled, use wording
+such as: “Health checks are recorded when completed. Approved summaries
+are prepared for periodic reporting.”
+
+======================================================================
+6. TECHNICAL ARCHITECTURE
+======================================================================
+
+6.1 Proposed technology stack
+
+Desktop shell and system integration: - Tauri. - Rust for application
+lifecycle, filesystem access, local database coordination, scheduling,
+synchronization queue, and controlled hardware integration.
+
+Frontend: - React. - TypeScript. - A component-based UI with accessible
+status indicators and charts.
+
+Computer vision and signal processing: - Python. - OpenCV for
+camera/frame handling and image processing. - Appropriate scientific
+signal-processing libraries where justified, such as NumPy and SciPy. -
+A defined local IPC interface between the Rust/Tauri host and Python
+processing service.
+
+Persistence: - SQLite as the local primary database. - Versioned
+database migrations. - Transactional writes and backup strategy.
+
+Communication: - A transport abstraction for local testing and future
+network/satellite integration. - HTTPS or a mission-approved transport
+protocol when connected. - Do not assume that a satellite modem exposes
+ordinary internet access.
+
+6.2 Component responsibilities
+
+Tauri/Rust: - Start and supervise the desktop application. - Manage
+application configuration and lifecycle. - Provide controlled filesystem
+access. - Maintain local persistence and database transactions, or
+coordinate a dedicated database layer. - Run reminders and storage
+checks while the application is running. - Maintain the synchronization
+queue. - Perform secure transport and acknowledgement handling. - Manage
+application logs and update verification. - Expose a narrow, validated
+command interface to the frontend.
+
+React/TypeScript: - Render navigation, crew cards, profiles, charts,
+tasks, alerts, and Wiki. - Present camera status and measurement
+workflow. - Display quality and provenance metadata. - Avoid
+implementing security-sensitive filesystem or transport operations
+directly in the frontend.
+
+Python/OpenCV: - Discover or open a selected camera through supported OS
+APIs. - Negotiate supported capture modes. - Acquire timestamped
+frames. - Detect/track face and skin ROIs. - Extract signals and
+estimate pulse where valid. - Return structured results and
+diagnostics. - Release camera resources safely when a session ends.
+
+6.3 Camera and video pipeline
+
+Proposed processing path:
+
+Camera device -> OS capture API / camera driver -> negotiated pixel
+format and frame rate -> Python frame acquisition -> frame timestamps ->
+face detection and tracking -> skin ROI selection -> color signal
+extraction -> rPPG algorithm -> filtering and artifact/quality
+assessment -> pulse estimate + quality metadata -> Rust application
+service -> SQLite -> React UI
+
+Important hardware limitation: Tauri and Rust do not automatically
+provide unrestricted control over camera compression, pixel format,
+exposure, gain, focus, or image quality. The available controls depend
+on the operating system, driver, camera firmware, and capture backend.
+YUY2 is a possible negotiated format on some devices, not a guaranteed
+format. “Uncompressed” does not necessarily mean more accurate rPPG;
+frame rate, exposure stability, lighting, motion, and signal quality
+also matter.
+
+The implementation shall query available modes, request a supported
+mode, verify the negotiated result, and record the actual mode. It shall
+not silently claim YUY2 or 100% quality if the device did not provide
+it.
+
+6.4 Local process communication
+
+The Python worker may run as a supervised child process. Communication
+options include standard input/output using versioned JSON messages or a
+local IPC mechanism. The selected method must: - Validate message schema
+and size. - Include request/session IDs. - Handle worker crashes and
+timeouts. - Avoid sending unnecessary raw frame data through the UI
+layer. - Provide explicit start, stop, and health-check operations. -
+Ensure camera resources are released after failure or shutdown.
+
+6.5 Database model (initial entities)
+
+Astronaut: - astronaut_id - crew_identifier - display_name - role (if
+applicable) - profile_status - created_at - updated_at
+
+MeasurementSession: - session_id - astronaut_id - started_at_utc -
+ended_at_utc - camera_device_id - capture_format - resolution -
+effective_fps - algorithm_name - algorithm_version - session_status
+
+MetricRecord: - metric_id - session_id - metric_type - value - unit -
+validity_status - quality_score or quality metadata - source_type -
+measured_at_utc
+
+JournalEntry: - entry_id - astronaut_id - entry_type (sleep, mood, or
+approved type) - value - unit_or_scale - recorded_at_utc - source_type
+
+Task: - task_id - astronaut_id - task_type - due_at_utc - status -
+completed_at_utc
+
+Alert: - alert_id - astronaut_id - severity - rule_id - created_at_utc -
+acknowledged_at_utc - acknowledged_by - resolved_at_utc - status
+
+SyncQueueItem: - item_id - record_type - record_id - payload_version -
+created_at_utc - status - retry_count - next_retry_at_utc -
+acknowledged_at_utc
+
+AuditEvent: - event_id - actor_id - event_type - target_type -
+target_id - timestamp_utc - details
+
+Thresholds, risk rules, and status mappings must be versioned and
+traceable to approved sources. Do not embed invented clinical thresholds
+in code.
+
+======================================================================
+7. HEALTH STATUS, RISK AND GAMIFICATION RULES
+======================================================================
+
+7.1 Status model
+
+The initial system may use a simple status model: - GOOD: no configured
+screening rule currently requires review, and required data is
+sufficiently recent and valid. - MODERATE: a non-urgent trend or
+incomplete task requires attention. - LOW: a configured rule indicates a
+notable deviation requiring review. - REVIEW REQUIRED: a high-priority
+configured rule requires timely human review. - UNKNOWN: data is
+missing, stale, invalid, or of insufficient quality.
+
+These are workflow labels, not medical diagnoses. Exact definitions and
+thresholds require domain review and source documentation.
+
+7.2 Task adaptation
+
+The number and type of tasks may be adapted only using approved rules.
+An abnormal measurement must not automatically prescribe exercise or
+increase physical workload. Additional tasks should be safe, optional
+where appropriate, and approved for the mission context.
+
+7.3 Achievement presentation
+
+-   Pending task: visually distinct, e.g. amber achievement-style icon.
+-   Completed task: green completion state.
+-   Overdue task: clear text and a separate overdue marker.
+-   Alert state: distinct from achievement state.
+-   Unknown data: neutral state, never green by default.
+
+The UI should reward completion of the check process, not a favorable
+health result. Astronauts must not be incentivized to manipulate or
+repeat readings to obtain a better score.
+
+======================================================================
+8. ALERTS AND NOTIFICATIONS
+======================================================================
+
+Alerts shall be based on versioned rules and valid data. The system
+shall distinguish: - Measurement-quality warning. - Routine task
+reminder. - Trend requiring review. - High-priority health screening
+flag. - System fault (camera, storage, clock, database, sync).
+
+For audio: - Use a short, recognizable alert sound for approved
+high-priority events. - Provide a clear acknowledge action. - Keep a
+persistent visual alert until reviewed/resolved according to policy. -
+Apply a bounded repeat interval and maximum repeat policy. - Provide
+mute/silence controls only to authorized roles and preserve visual
+escalation. - Log every alert state transition.
+
+Do not use an endless sound loop or require opening a profile as the
+only way to silence audio. Alert acknowledgement and medical resolution
+are separate actions.
+
+======================================================================
+9. OFFLINE OPERATION AND SYNCHRONIZATION
+======================================================================
+
+9.1 Offline behavior
+
+Without external connectivity, the application shall still: - Open the
+local UI. - Read local crew profiles and records. - Perform supported
+camera measurements. - Run local signal processing. - Save records to
+SQLite. - Display reminders while the application is running. - Display
+locally generated alerts. - Generate local exports. - Queue records for
+later synchronization.
+
+The application cannot guarantee collection when the computer is powered
+off, the app is not running, the camera is disconnected, or the
+operating system suspends the process.
+
+9.2 Synchronization lifecycle
+
+Local record created -> queued as PENDING -> connection available ->
+batch prepared -> payload encrypted and sent -> receiver validates and
+stores -> receiver returns acknowledgement -> local item marked SYNCED
+
+On failure: - Retain the local record. - Record the failure reason. -
+Retry with bounded exponential backoff. - Prevent duplicate remote
+records through stable IDs/idempotency keys. - Do not mark data as
+synchronized before acknowledgement.
+
+9.3 Transport abstraction
+
+Define a transport interface so that the application can use a
+test/local transport, ordinary IP network, or a future mission-specific
+satellite gateway. The satellite implementation is outside the MVP until
+its hardware, protocol, authentication, bandwidth, and operational
+constraints are known.
+
+9.4 Data prioritization
+
+Suggested priority: 1. Approved high-priority alert metadata. 2. Latest
+measurement summaries and required health records. 3. Routine task and
+journal records. 4. Aggregated historical summaries. 5. Optional
+diagnostics.
+
+Raw video is excluded by default.
+
+======================================================================
+10. STORAGE, BACKUP AND RETENTION
+======================================================================
+
+-   SQLite is the primary local record store.
+-   Records are retained by default; no automatic deletion.
+-   Monthly export packages are placed under
+    ASTRONAUTS-HEALTH-RESULTS-MONTH/YYYY-MM/.
+-   Monitor both application data size and free disk space.
+-   Warn at configurable thresholds before storage exhaustion.
+-   Provide authorized backup/export operations.
+-   Verify backups and record their creation time.
+-   Protect database files and exports using OS permissions and
+    encryption where supported and required by the mission security
+    policy.
+-   Do not store secrets or credentials in plaintext configuration
+    files.
+
+The project README must document the exact data directory for each
+supported OS, database location, monthly archive structure, backup
+process, and retention behavior.
+
+======================================================================
+11. SECURITY AND PRIVACY
+======================================================================
+
+-   Restrict access to crew health information by role and mission
+    policy.
+-   Keep camera processing local by default.
+-   Do not transmit raw video unless explicitly authorized.
+-   Encrypt network transfers.
+-   Protect local files and backups according to the target OS
+    capabilities.
+-   Validate all IPC messages and frontend-to-Rust commands.
+-   Apply least privilege to the Python worker.
+-   Avoid logging raw health data or sensitive personal details
+    unnecessarily.
+-   Maintain an audit trail for exports, acknowledgements, and
+    synchronization.
+-   Use signed application updates and verify update integrity.
+-   Define key management and recovery before operational deployment.
+
+======================================================================
+12. TIME AND CLOCK HANDLING
+======================================================================
+
+-   Store timestamps in UTC using a consistent machine-readable
+    representation.
+-   Display UTC in the mission header.
+-   Derive DOY from the UTC date.
+-   Derive MET from a configured mission epoch.
+-   Derive circadian phase from an approved schedule and the correct
+    time basis.
+-   Record clock synchronization status and uncertainty where available.
+-   Do not treat display precision as proof of clock accuracy.
+-   Use monotonic clocks for elapsed intervals within a running process
+    where appropriate; use UTC timestamps for persistent event records.
+
+The example date/time and MET values in the concept are examples only.
+Mission epoch and schedules must be configured for the actual mission.
+
+======================================================================
+13. UPDATES AND APPLICATION LIFECYCLE
+======================================================================
+
+-   Essential offline functionality must not depend on update
+    availability.
+-   Updates must be signed and integrity-checked.
+-   Updates should be staged and installed only under an approved
+    policy.
+-   Support rollback to a known-good version where technically feasible.
+-   Apply database migrations safely and back up data before
+    incompatible migrations.
+-   Display current application version.
+-   Do not force an update during an active measurement or critical
+    operation.
+-   Document supported OS versions and hardware requirements.
+
+======================================================================
+14. FAILURE MODES AND RECOVERY
+======================================================================
+
+Camera unavailable: - Show device error. - Allow device reselection. -
+Do not create a valid measurement record.
+
+Unsupported capture format: - Fall back to a supported mode. - Record
+the actual negotiated format. - Show a diagnostic message.
+
+Insufficient rPPG signal: - Mark the result inconclusive. - Explain
+likely causes such as motion, lighting, or short capture duration. -
+Offer a new measurement only where appropriate.
+
+Python worker crash: - Stop the measurement safely. - Release camera
+resources if possible. - Record a technical error. - Restart the worker
+only under controlled recovery logic.
+
+Database write failure: - Do not report the measurement as saved. -
+Preserve recoverable data in a controlled temporary buffer where
+feasible. - Show a prominent storage/database warning.
+
+Disk space low: - Warn the user. - Stop nonessential exports or cache
+growth if necessary. - Never silently delete health records.
+
+Network/satellite unavailable: - Continue local operation. - Retain
+queued records. - Display pending synchronization state.
+
+Clock not synchronized: - Continue local operation where safe. - Flag
+timestamp uncertainty. - Avoid misleading mission-time interpretation.
+
+Alert audio unavailable: - Keep a persistent visual alert. - Record the
+audio subsystem failure.
+
+======================================================================
+15. MVP SCOPE AND IMPLEMENTATION PRIORITIES
+======================================================================
+
+P0 — Demonstrable core - Tauri desktop shell and React/TypeScript UI. -
+Python/OpenCV camera acquisition. - Camera discovery and actual
+capture-mode reporting. - Basic face/ROI extraction. - rPPG proof of
+concept with quality gating. - One astronaut profile and a small crew
+list. - SQLite persistence. - UTC/DOY/MET/circadian header using
+configurable mission settings. - Local dashboard and detailed profile. -
+Manual measurement workflow. - Clear signal-quality and limitation
+messages.
+
+P1 — Operational workflow - Multiple astronaut profiles. - Daily check
+reminders. - Task completion and achievement-style states. - Sleep/mood
+journal if included in approved scope. - Versioned screening rules and
+status indicators. - Wiki/help section. - Local alerts with
+acknowledgement. - JSON/TXT/PDF exports. - Storage monitoring and
+monthly archive generation.
+
+P2 — Resilience and mission integration - Offline sync queue and
+simulated connection recovery. - Idempotent remote transfer protocol. -
+Satellite transport adapter once interface details exist. - Signed
+update workflow. - Backup/restore validation. - Role-based access and
+audit trail. - Long-duration reliability and performance tests.
+
+The first technical gate is a real-camera rPPG proof of concept. Do not
+build the full UI and gamification system before proving that the
+selected camera, capture mode, and algorithm can produce a sufficiently
+stable signal under representative conditions.
+
+======================================================================
+16. ACCEPTANCE CRITERIA
+======================================================================
+
+A build may be considered an MVP candidate when:
+
+AC-001. The desktop application launches without an internet connection.
+AC-002. It can enumerate and open at least one supported camera. AC-003.
+It reports the actual negotiated pixel format, resolution, and FPS.
+AC-004. It can capture a timestamped frame sequence. AC-005. It can
+produce an rPPG estimate on a validated test setup, or clearly report an
+inconclusive result when quality is insufficient. AC-006. It never
+presents an invalid estimate as a valid measurement. AC-007. It stores
+measurement metadata and results in SQLite. AC-008. A saved record
+remains available after application restart. AC-009. The crew overview
+and astronaut profile update from stored records. AC-010. UTC, DOY, MET,
+and circadian phase are displayed from configured sources and settings.
+AC-011. A due task is visible and completion is persisted. AC-012.
+Alerts can be acknowledged and their state transitions are logged.
+AC-013. The application does not delete health records automatically.
+AC-014. Low disk space produces a visible warning. AC-015. Export files
+contain timestamps, units, provenance, and validity. AC-016. With
+connectivity disabled, local workflows continue to operate. AC-017.
+Queued records are not marked synchronized until acknowledged. AC-018.
+The UI explains that rPPG is an estimate and not a medical diagnosis.
+
+======================================================================
+17. OPEN QUESTIONS / DECISIONS REQUIRED
+======================================================================
+
+1.  Which operating systems must be supported: Windows, Linux, macOS?
+2.  What is the target computer hardware and camera model?
+3.  Is the camera RGB, YUY2, MJPEG, or another mode? Which modes are
+    actually exposed by its driver?
+4.  What capture resolution and effective frame rate are available?
+5.  Is rPPG the only physiological input, or will certified sensors be
+    used?
+6.  Which exact metrics are required for the first release?
+7.  What are the authoritative sources and approved thresholds for
+    screening rules?
+8.  Who is authorized to view, acknowledge, export, and synchronize each
+    astronaut’s data?
+9.  What is the exact mission start epoch and circadian schedule?
+10. What is the required reminder cadence and missed-check escalation
+    policy?
+11. What should constitute a high-priority alert, and who receives it?
+12. Is audio permitted in the target environment, and what are its
+    safety and accessibility constraints?
+13. What is the actual ground-side API or satellite communication
+    interface?
+14. What data is permitted to leave the spacecraft, and at what
+    frequency?
+15. What are the retention, encryption, backup, and key-management
+    policies?
+16. Is continuous 24/7 acquisition truly required, or are scheduled
+    checks sufficient for the challenge prototype?
+17. What exact monthly reporting format is expected by mission
+    leadership?
+18. What is the teammate’s proposed architecture, and which parts should
+    be adopted, modified, or rejected?
+
+======================================================================
+18. RISKS AND TECHNICAL VALIDATION GATES
+======================================================================
+
+RISK-01: rPPG accuracy and reliability Mitigation: early proof of
+concept, representative camera testing, quality gating, comparison
+against a reference device during development, and transparent
+limitations.
+
+RISK-02: Camera format/control assumptions Mitigation: enumerate and
+negotiate supported modes; never assume YUY2, uncompressed output, fixed
+exposure, or “100% quality” is available.
+
+RISK-03: Medical overclaim Mitigation: use screening/support language,
+source all rules, and require human review. Do not claim diagnostic
+accuracy.
+
+RISK-04: False or missed alerts Mitigation: conservative, validated
+rules; quality checks; alert audit trail; human oversight; no single
+unvalidated metric as a diagnosis.
+
+RISK-05: Offline data loss Mitigation: transactional SQLite writes,
+backup/restore tests, durable sync queue, and explicit acknowledgement.
+
+RISK-06: Scope overload Mitigation: prove camera/rPPG first; implement
+the desktop shell and basic local data flow before gamification,
+satellite integration, and advanced reporting.
+
+RISK-07: Continuous-monitoring overclaim Mitigation: clearly state
+whether monitoring is scheduled, user-initiated, or continuous. Test
+background operation, power behavior, camera availability, and recovery
+before claiming 24/7 coverage.
+
+======================================================================
+19. DOCUMENT STATUS AND CHANGE CONTROL
+======================================================================
+
+This document describes the product requirements and a preliminary
+architecture based on the project owner’s current concept. It is not yet
+a final implementation design.
+
+The teammate’s architecture has not been reviewed or incorporated. After
+it is supplied, the project team should: - Compare its components
+against Sections 6 and 7. - Identify compatible, conflicting, and
+missing responsibilities. - Validate the camera acquisition path on
+target hardware. - Confirm the Python/Rust IPC design. - Confirm data
+schema and sync contract. - Update this specification with accepted
+architectural decisions.
+
+End of document.

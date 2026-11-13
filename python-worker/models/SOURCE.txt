@@ -1,0 +1,5 @@
+face_landmarker.task is the MediaPipe Face Landmarker model.
+
+It is bundled so the program can find a face without a network connection.
+The worker uses the landmarks only to place forehead and cheek regions.
+It does not identify the person, and it does not store the image.
