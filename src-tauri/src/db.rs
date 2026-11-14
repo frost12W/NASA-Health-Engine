@@ -27,6 +27,7 @@ pub struct Astronaut {
     pub display_name: String,
     pub role: String,
     pub profile_status: String,
+    pub age_years: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -241,6 +242,114 @@ pub fn set_config(
     Ok(())
 }
 
+pub fn bind_person(conn: &Connection, display_name: &str, age_years: i64, role: &str) -> Result<Astronaut, String> {
+    let name = validate_person_name(display_name)?;
+    let stored_role = validate_role(role)?;
+    if !(18..=99).contains(&age_years) {
+        return Err("Age is whole years from 18 to 99. This is an entry bound, not a health category.".into());
+    }
+    let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    let mut matches = Vec::new();
+    {
+        let mut statement = tx
+            .prepare("SELECT astronaut_id FROM astronauts WHERE LOWER(TRIM(display_name)) = LOWER(?1) ORDER BY updated_at_utc DESC")
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([&name], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            matches.push(row.map_err(|error| error.to_string())?);
+        }
+    }
+    delete_simulated_metrics(&tx)?;
+    let now = utc_now();
+    let id = if let Some(existing) = matches.first() {
+        purge_other_astronauts(&tx, existing)?;
+        tx.execute(
+            "UPDATE astronauts SET display_name = ?1, role = ?2, age_years = ?3, profile_status = 'ACTIVE', updated_at_utc = ?4 WHERE astronaut_id = ?5",
+            params![name, stored_role, age_years, now, existing],
+        )
+        .map_err(|error| error.to_string())?;
+        existing.clone()
+    } else {
+        let id = Uuid::new_v4().to_string();
+        purge_other_astronauts(&tx, &id)?;
+        let identifier = next_crew_identifier(&tx)?;
+        tx.execute(
+            "INSERT INTO astronauts (astronaut_id, crew_identifier, display_name, role, profile_status, age_years, created_at_utc, updated_at_utc)
+             VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?6, ?6)",
+            params![id, identifier, name, stored_role, age_years, now],
+        )
+        .map_err(|error| error.to_string())?;
+        id
+    };
+    audit(&tx, "PERSON_BOUND", "astronaut", &id, "Personal profile bound. The test password is not stored.")?;
+    tx.commit().map_err(|error| error.to_string())?;
+    load_astronaut(conn, &id)
+}
+
+fn validate_person_name(display_name: &str) -> Result<String, String> {
+    let name = display_name.trim();
+    if name.is_empty() || name.len() > 80 || !name.chars().any(|ch| ch.is_alphabetic()) {
+        return Err("Enter a family name and a given name, up to 80 characters.".into());
+    }
+    Ok(name.to_string())
+}
+
+fn validate_role(role: &str) -> Result<&'static str, String> {
+    match role.trim().to_uppercase().as_str() {
+        "MEDICAL" => Ok("MEDICAL"),
+        "ADMIN" => Ok("ADMIN"),
+        "CREW" => Ok("CREW"),
+        _ => Err("Role is CREW, MEDICAL, or ADMIN.".into()),
+    }
+}
+
+fn delete_simulated_metrics(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM sync_queue WHERE record_id IN (SELECT metric_id FROM metric_records WHERE source_type = 'SIMULATED')",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    conn.execute("DELETE FROM metric_records WHERE source_type = 'SIMULATED'", [])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn purge_other_astronauts(conn: &Connection, keep_id: &str) -> Result<(), String> {
+    for table in ["metric_records", "journal_entries", "tasks", "measurement_sessions", "alerts"] {
+        conn.execute(
+            &format!("DELETE FROM {table} WHERE astronaut_id IS NOT NULL AND astronaut_id != ?1"),
+            [keep_id],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    conn.execute("DELETE FROM astronauts WHERE astronaut_id != ?1", [keep_id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn load_astronaut(conn: &Connection, astronaut_id: &str) -> Result<Astronaut, String> {
+    conn.query_row(
+        "SELECT astronaut_id, crew_identifier, display_name, role, profile_status, age_years
+         FROM astronauts WHERE astronaut_id = ?1",
+        [astronaut_id],
+        read_astronaut,
+    )
+    .map_err(|_| "This profile was not found.".to_string())
+}
+
+fn read_astronaut(row: &rusqlite::Row) -> rusqlite::Result<Astronaut> {
+    Ok(Astronaut {
+        astronaut_id: row.get(0)?,
+        crew_identifier: row.get(1)?,
+        display_name: row.get(2)?,
+        role: row.get(3)?,
+        profile_status: row.get(4)?,
+        age_years: row.get(5)?,
+    })
+}
+
 pub fn create_astronaut(
     conn: &Connection,
     display_name: &str,
@@ -250,10 +359,7 @@ pub fn create_astronaut(
     diastolic: f64,
     pulse: f64,
 ) -> Result<String, String> {
-    let name = display_name.trim();
-    if name.is_empty() || name.len() > 80 || !name.chars().any(|ch| ch.is_alphabetic()) {
-        return Err("Enter a family name and a given name, up to 80 characters.".into());
-    }
+    let name = validate_person_name(display_name)?;
     if !(18..=99).contains(&age_years) {
         return Err("Age is whole years from 18 to 99. This is an entry bound, not a health category.".into());
     }
@@ -263,12 +369,7 @@ pub fn create_astronaut(
     if pulse.fract() != 0.0 || !(30.0..=220.0).contains(&pulse) {
         return Err("Pulse is a whole number from 30 to 220 bpm. This is an entry bound, not a health category.".into());
     }
-    let stored_role = match role.trim().to_uppercase().as_str() {
-        "MEDICAL" => "MEDICAL",
-        "ADMIN" => "ADMIN",
-        "CREW" => "CREW",
-        _ => return Err("Role is CREW, MEDICAL, or ADMIN.".into()),
-    };
+    let stored_role = validate_role(role)?;
     let id = Uuid::new_v4().to_string();
     let identifier = next_crew_identifier(conn)?;
     let now = utc_now();
@@ -279,9 +380,9 @@ pub fn create_astronaut(
         params![id, identifier, name, stored_role, age_years, now],
     )
     .map_err(|error| error.to_string())?;
-    insert_manual_metric(&tx, &id, "BLOOD_PRESSURE_SYSTOLIC", systolic, "mmHg")?;
-    insert_manual_metric(&tx, &id, "BLOOD_PRESSURE_DIASTOLIC", diastolic, "mmHg")?;
-    insert_manual_metric(&tx, &id, "PULSE_RATE", pulse, "bpm")?;
+    insert_manual_metric(&tx, &id, "BLOOD_PRESSURE_SYSTOLIC", systolic, "mmHg", "SELF_REPORTED")?;
+    insert_manual_metric(&tx, &id, "BLOOD_PRESSURE_DIASTOLIC", diastolic, "mmHg", "SELF_REPORTED")?;
+    insert_manual_metric(&tx, &id, "PULSE_RATE", pulse, "bpm", "SELF_REPORTED")?;
     audit(&tx, "ASTRONAUT_CREATED", "astronaut", &id, &identifier)?;
     tx.commit().map_err(|error| error.to_string())?;
     Ok(id)
@@ -364,20 +465,12 @@ pub fn resume_mission(conn: &Connection) -> Result<(), String> {
 pub fn list_astronauts(conn: &Connection) -> Result<Vec<Astronaut>, String> {
     let mut statement = conn
         .prepare(
-            "SELECT astronaut_id, crew_identifier, display_name, role, profile_status
+            "SELECT astronaut_id, crew_identifier, display_name, role, profile_status, age_years
              FROM astronauts WHERE profile_status = 'ACTIVE' ORDER BY crew_identifier",
         )
         .map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map([], |row| {
-            Ok(Astronaut {
-                astronaut_id: row.get(0)?,
-                crew_identifier: row.get(1)?,
-                display_name: row.get(2)?,
-                role: row.get(3)?,
-                profile_status: row.get(4)?,
-            })
-        })
+        .query_map([], read_astronaut)
         .map_err(|error| error.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
 }
@@ -416,6 +509,7 @@ pub fn list_tasks(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<TaskView>
         .prepare(
             "SELECT t.task_id, t.astronaut_id, a.crew_identifier, a.display_name, t.task_type, t.due_at_utc, t.status, t.completed_at_utc
              FROM tasks t JOIN astronauts a ON a.astronaut_id = t.astronaut_id
+             WHERE a.profile_status = 'ACTIVE'
              ORDER BY t.due_at_utc DESC, a.crew_identifier",
         )
         .map_err(|error| error.to_string())?;
@@ -449,47 +543,21 @@ fn latest_metric(conn: &Connection, astronaut_id: &str, metric_type: &str) -> Op
     .ok()
 }
 
-fn insert_sample(conn: &Connection, astronaut_id: &str, metric_type: &str, value: f64, unit: &str) -> Result<(), String> {
-    let metric_id = Uuid::new_v4().to_string();
-    let note = json!({
-        "note": "Sample profile value so the home card can show a number. A newer record replaces it.",
-        "sample": true
-    });
-    conn.execute(
-        "INSERT INTO metric_records (
-            metric_id, session_id, astronaut_id, metric_type, value, unit, source_type, validity_status,
-            quality_score, quality_metadata_json, method_name, method_version, measured_at_utc, created_at_utc
-         ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, 'SIMULATED', 'VALID', NULL, ?6, 'SAMPLE_PROFILE', 'sample-profile-v1', '2026-01-01T00:00:00Z', ?7)",
-        params![metric_id, astronaut_id, metric_type, value, unit, note.to_string(), utc_now()],
-    )
-    .map_err(|error| error.to_string())?;
-    queue_local(conn, "metric_record", &metric_id)?;
-    Ok(())
-}
-
-fn seed_display_samples(conn: &Connection) -> Result<(), String> {
-    for astronaut in list_astronauts(conn)? {
-        let index = astronaut.astronaut_id.bytes().fold(0usize, |total, byte| total.wrapping_add(byte as usize)) % 3;
-        let rows = [
-            ("RESPIRATORY_RATE", [12.0, 15.0, 16.0][index], "breaths/min"),
-            ("SLEEP_HOURS", [6.5, 7.2, 8.0][index], "h"),
-            ("MOOD_SCORE", [3.0, 4.0, 5.0][index], "1-5"),
-        ];
-        for (metric_type, value, unit) in rows {
-            if latest_metric(conn, &astronaut.astronaut_id, metric_type).is_none() {
-                insert_sample(conn, &astronaut.astronaut_id, metric_type, value, unit)?;
-            }
-        }
-        if latest_metric(conn, &astronaut.astronaut_id, "PULSE_RATE").is_none() {
-            insert_sample(conn, &astronaut.astronaut_id, "PULSE_RATE", [68.0, 74.0, 81.0][index], "bpm")?;
-        }
-    }
-    Ok(())
+fn latest_journal_number(conn: &Connection, astronaut_id: &str, entry_type: &str) -> Option<f64> {
+    let text: String = conn
+        .query_row(
+            "SELECT value FROM journal_entries
+             WHERE astronaut_id = ?1 AND entry_type = ?2
+             ORDER BY recorded_at_utc DESC LIMIT 1",
+            params![astronaut_id, entry_type],
+            |row| row.get(0),
+        )
+        .ok()?;
+    text.parse::<f64>().ok()
 }
 
 pub fn home_cards(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<HomeCard>, String> {
     ensure_daily_tasks(conn, now)?;
-    seed_display_samples(conn)?;
     let astronauts = list_astronauts(conn)?;
     let mut cards = Vec::new();
     for astronaut in astronauts {
@@ -522,8 +590,14 @@ pub fn home_cards(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<HomeCard>
             .flatten();
         let pulse = latest_metric(conn, &astronaut.astronaut_id, "PULSE_RATE");
         let breath = latest_metric(conn, &astronaut.astronaut_id, "RESPIRATORY_RATE");
-        let sleep = latest_metric(conn, &astronaut.astronaut_id, "SLEEP_HOURS");
-        let mood = latest_metric(conn, &astronaut.astronaut_id, "MOOD_SCORE");
+        let sleep = match latest_journal_number(conn, &astronaut.astronaut_id, "SLEEP") {
+            Some(value) => Some((value, String::new(), "SELF_REPORTED".to_string())),
+            None => latest_metric(conn, &astronaut.astronaut_id, "SLEEP_HOURS"),
+        };
+        let mood = match latest_journal_number(conn, &astronaut.astronaut_id, "MOOD") {
+            Some(value) => Some((value, String::new(), "SELF_REPORTED".to_string())),
+            None => latest_metric(conn, &astronaut.astronaut_id, "MOOD_SCORE"),
+        };
         let systolic = latest_metric(conn, &astronaut.astronaut_id, "BLOOD_PRESSURE_SYSTOLIC");
         let diastolic = latest_metric(conn, &astronaut.astronaut_id, "BLOOD_PRESSURE_DIASTOLIC");
         let day = clock::today_utc(now);
@@ -795,11 +869,17 @@ pub fn add_manual_entries(
     systolic: &str,
     diastolic: &str,
     temperature: &str,
+    source: &str,
 ) -> Result<usize, String> {
     let mut count = 0;
     let sys_text = systolic.trim();
     let dia_text = diastolic.trim();
     let temp_text = temperature.trim();
+    let source_type = match source.trim().to_uppercase().as_str() {
+        "EXTERNAL_DEVICE" => "EXTERNAL_DEVICE",
+        "SELF_REPORTED" | "" => "SELF_REPORTED",
+        _ => return Err("Blood pressure and temperature come from a typed entry or a connected instrument.".into()),
+    };
     if sys_text.is_empty() && dia_text.is_empty() && temp_text.is_empty() {
         return Err("Enter a blood pressure, a temperature, or both.".into());
     }
@@ -813,8 +893,8 @@ pub fn add_manual_entries(
         if !(40.0..=300.0).contains(&sys) || !(20.0..=200.0).contains(&dia) || sys <= dia {
             return Err("Those blood pressure numbers are outside the entry bounds, or the first number is not higher than the second.".into());
         }
-        insert_manual_metric(&tx, astronaut_id, "BLOOD_PRESSURE_SYSTOLIC", sys, "mmHg")?;
-        insert_manual_metric(&tx, astronaut_id, "BLOOD_PRESSURE_DIASTOLIC", dia, "mmHg")?;
+        insert_manual_metric(&tx, astronaut_id, "BLOOD_PRESSURE_SYSTOLIC", sys, "mmHg", source_type)?;
+        insert_manual_metric(&tx, astronaut_id, "BLOOD_PRESSURE_DIASTOLIC", dia, "mmHg", source_type)?;
         count += 2;
     }
     if !temp_text.is_empty() {
@@ -822,26 +902,40 @@ pub fn add_manual_entries(
         if !(20.0..=50.0).contains(&temp) {
             return Err("Temperature must be from 20 to 50 C. This is an entry bound, not a health category.".into());
         }
-        insert_manual_metric(&tx, astronaut_id, "BODY_TEMPERATURE", temp, "C")?;
+        insert_manual_metric(&tx, astronaut_id, "BODY_TEMPERATURE", temp, "C", source_type)?;
         count += 1;
     }
     tx.commit().map_err(|error| error.to_string())?;
     Ok(count)
 }
 
-fn insert_manual_metric(conn: &Connection, astronaut_id: &str, metric_type: &str, value: f64, unit: &str) -> Result<(), String> {
+fn insert_manual_metric(
+    conn: &Connection,
+    astronaut_id: &str,
+    metric_type: &str,
+    value: f64,
+    unit: &str,
+    source_type: &str,
+) -> Result<(), String> {
     let metric_id = Uuid::new_v4().to_string();
     let now = utc_now();
+    let from_instrument = source_type == "EXTERNAL_DEVICE";
     let note = json!({
-        "note": "Manually entered by the crew. The camera did not measure this value.",
-        "entry_bound_only": true
+        "note": if from_instrument {
+            "Entered from a connected instrument. The camera did not measure this value."
+        } else {
+            "Typed by this astronaut. The camera did not measure this value."
+        },
+        "entry_bound_only": true,
+        "not_a_diagnosis": true
     });
+    let method = if from_instrument { "CONNECTED_INSTRUMENT" } else { "MANUAL_ENTRY" };
     conn.execute(
         "INSERT INTO metric_records (
             metric_id, session_id, astronaut_id, metric_type, value, unit, source_type, validity_status,
             quality_score, quality_metadata_json, method_name, method_version, measured_at_utc, created_at_utc
-         ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, 'SELF_REPORTED', 'VALID', NULL, ?6, 'MANUAL_ENTRY', 'manual-entry-v1', ?7, ?7)",
-        params![metric_id, astronaut_id, metric_type, value, unit, note.to_string(), now],
+         ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, 'VALID', NULL, ?7, ?8, 'manual-entry-v1', ?9, ?9)",
+        params![metric_id, astronaut_id, metric_type, value, unit, source_type, note.to_string(), method, now],
     )
     .map_err(|error| error.to_string())?;
     queue_local(conn, "metric_record", &metric_id)?;
@@ -936,7 +1030,7 @@ pub fn export_records(conn: &Connection, data_dir: &Path, astronaut_id: &str, fo
             [astronaut_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
-        .map_err(|_| "Crew member was not found.".to_string())?;
+        .map_err(|_| "This profile was not found.".to_string())?;
     let metrics = list_metrics(conn, astronaut_id)?;
     let journal = list_journal(conn, astronaut_id)?;
     let generated = utc_now();
@@ -1167,6 +1261,66 @@ mod tests {
         let hidden = stored.iter().find(|item| item["validity_status"] == "INCONCLUSIVE").unwrap();
         assert!(hidden["value"].is_null());
         drop(reopened);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bind_person_keeps_one_profile_and_does_not_store_a_password() {
+        let (path, conn) = temp_conn();
+        let first = create_astronaut(&conn, "Other Pilot", 41, "CREW", 118.0, 76.0, 64.0).unwrap();
+        let kept = create_astronaut(&conn, "Alexei Leonov", 36, "CREW", 120.0, 80.0, 70.0).unwrap();
+        conn.execute(
+            "INSERT INTO metric_records (
+                metric_id, session_id, astronaut_id, metric_type, value, unit, source_type, validity_status,
+                quality_score, quality_metadata_json, method_name, method_version, measured_at_utc, created_at_utc
+             ) VALUES ('sample-1', NULL, ?1, 'PULSE_RATE', 68, 'bpm', 'SIMULATED', 'VALID', NULL, '{}', 'SAMPLE_PROFILE', 'sample-profile-v1', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            [&kept],
+        )
+        .unwrap();
+        let person = bind_person(&conn, "Alexei Leonov", 37, "MEDICAL").unwrap();
+        assert_eq!(person.astronaut_id, kept);
+        assert_eq!(person.age_years, Some(37));
+        assert_eq!(person.role, "MEDICAL");
+        assert_ne!(person.astronaut_id, first);
+        let active = list_astronauts(&conn).unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].display_name, "Alexei Leonov");
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(astronauts)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(!columns.iter().any(|name| name.to_lowercase().contains("password")));
+        let simulated: i64 = conn
+            .query_row("SELECT COUNT(*) FROM metric_records WHERE source_type = 'SIMULATED'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(simulated, 0);
+        let leftover: i64 = conn
+            .query_row("SELECT COUNT(*) FROM astronauts WHERE astronaut_id = ?1", [&first], |row| row.get(0))
+            .unwrap();
+        assert_eq!(leftover, 0);
+        let replaced = bind_person(&conn, "Valentina Tereshkova", 32, "CREW").unwrap();
+        assert_ne!(replaced.astronaut_id, kept);
+        assert_eq!(list_astronauts(&conn).unwrap().len(), 1);
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn connected_instrument_readings_keep_their_source() {
+        let (path, conn) = temp_conn();
+        let person = bind_person(&conn, "Alexei Leonov", 37, "CREW").unwrap();
+        add_manual_entries(&conn, &person.astronaut_id, "122", "78", "36.6", "EXTERNAL_DEVICE").unwrap();
+        add_journal_entry(&conn, &person.astronaut_id, "MOOD", "4").unwrap();
+        let metrics = list_metrics(&conn, &person.astronaut_id).unwrap();
+        assert!(metrics.iter().all(|item| item["source_type"] == "EXTERNAL_DEVICE"));
+        let cards = home_cards(&conn, chrono::Utc::now()).unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].wellbeing, Some(4.0));
+        assert_eq!(cards[0].wellbeing_source.as_deref(), Some("SELF_REPORTED"));
+        drop(conn);
         let _ = std::fs::remove_file(path);
     }
 

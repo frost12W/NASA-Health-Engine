@@ -1,0 +1,139 @@
+// TEST LOGIN. THE PASSWORD STAYS IN THIS WINDOW AND IS NEVER SENT OR SAVED.
+import { useState } from "react";
+import { api, desktopAvailable } from "./api";
+import type { PersonSession } from "./types";
+
+type LoginField = "name" | "age" | "role" | "password";
+
+const HINTS: Record<LoginField, string> = {
+  name: "Фамилия и имя, до 80 символов.",
+  age: "Полных лет, от 18 до 99.",
+  role: "CREW, MEDICAL или ADMIN.",
+  password: "От 4 до 64 символов. Проверка только на этом экране, пароль никуда не записывается.",
+};
+
+export function testPassword(password: string): string | null {
+  if (password.length < 4 || password.length > 64 || password.trim() !== password) return HINTS.password;
+  return null;
+}
+
+function hexPoints(cx: number, cy: number, radius: number): string {
+  return Array.from({ length: 6 }, (_, index) => {
+    const angle = (Math.PI / 180) * (60 * index - 30);
+    return `${(cx + radius * Math.cos(angle)).toFixed(2)},${(cy + radius * Math.sin(angle)).toFixed(2)}`;
+  }).join(" ");
+}
+
+function honeycombCells() {
+  const radius = 28;
+  const width = Math.sqrt(3) * radius;
+  const height = radius * 2;
+  const cells = [];
+  for (let row = 0; row < 22; row += 1) {
+    for (let col = 0; col < 34; col += 1) {
+      const cx = col * width + (row % 2 ? width / 2 : 0) - 20;
+      const cy = row * height * 0.75 - 16;
+      cells.push({
+        id: `${row}-${col}`,
+        points: hexPoints(cx, cy, radius - 1.6),
+        delay: `${((row * 17 + col * 13) % 70) / 10}s`,
+        duration: `${2.8 + ((row * 3 + col) % 9) * 0.45}s`,
+      });
+    }
+  }
+  return cells;
+}
+
+const CELLS = honeycombCells();
+
+export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => void }) {
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [role, setRole] = useState("");
+  const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState<Partial<Record<LoginField, string>>>({});
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <div className="login-gate">
+      <div className="login-blur" />
+      <svg className="honeycomb" viewBox="0 0 1600 980" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        {CELLS.map((cell) => (
+          <polygon key={cell.id} className="hex" points={cell.points} style={{ animationDelay: cell.delay, animationDuration: cell.duration }} />
+        ))}
+      </svg>
+      <form
+        className="login-card panel"
+        autoComplete="off"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const next = validateLogin(name, age, role, password);
+          setErrors(next);
+          if (Object.keys(next).length > 0) return;
+          if (!desktopAvailable()) {
+            setError("Окно Health Engine не подключено к локальной базе. Откройте программу на этом компьютере.");
+            return;
+          }
+          setBusy(true);
+          setError("");
+          void api.bindPerson(name.trim(), Number(age), role).then((astronaut) => {
+            onEnter({
+              astronautId: astronaut.astronaut_id,
+              crewIdentifier: astronaut.crew_identifier,
+              displayName: astronaut.display_name,
+              ageYears: astronaut.age_years ?? Number(age),
+              role: astronaut.role,
+              sessionPassword: password,
+            });
+          }).catch((reason: unknown) => {
+            setError(reason instanceof Error ? reason.message : String(reason));
+          }).finally(() => setBusy(false));
+        }}
+      >
+        <p className="login-kicker">Health Engine</p>
+        <h1>Личный профиль</h1>
+        <p className="muted">Один астронавт на этом компьютере. Пароль проверяется здесь и не сохраняется.</p>
+        {error && <p className="error">{error}</p>}
+        <label className={errors.name ? "invalid" : undefined}>
+          Имя
+          <input value={name} autoComplete="off" onChange={(event) => setName(event.target.value)} />
+          <span className={errors.name ? "field-hint bad" : "field-hint"}>{errors.name ?? HINTS.name}</span>
+        </label>
+        <label className={errors.age ? "invalid" : undefined}>
+          Возраст
+          <input value={age} inputMode="numeric" autoComplete="off" onChange={(event) => setAge(event.target.value)} />
+          <span className={errors.age ? "field-hint bad" : "field-hint"}>{errors.age ?? HINTS.age}</span>
+        </label>
+        <label className={errors.role ? "invalid" : undefined}>
+          Роль
+          <select value={role} onChange={(event) => setRole(event.target.value)}>
+            <option value="">Выберите</option>
+            <option value="CREW">CREW</option>
+            <option value="MEDICAL">MEDICAL</option>
+            <option value="ADMIN">ADMIN</option>
+          </select>
+          <span className={errors.role ? "field-hint bad" : "field-hint"}>{errors.role ?? HINTS.role}</span>
+        </label>
+        <label className={errors.password ? "invalid" : undefined}>
+          Персональный пароль
+          <input value={password} type="password" autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
+          <span className={errors.password ? "field-hint bad" : "field-hint"}>{errors.password ?? HINTS.password}</span>
+        </label>
+        <button type="submit" disabled={busy}>Войти</button>
+      </form>
+    </div>
+  );
+}
+
+function validateLogin(name: string, age: string, role: string, password: string): Partial<Record<LoginField, string>> {
+  const errors: Partial<Record<LoginField, string>> = {};
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length > 80 || !/[A-Za-z\u0400-\u04FF]/.test(trimmed)) errors.name = HINTS.name;
+  const years = Number(age);
+  if (!Number.isInteger(years) || years < 18 || years > 99) errors.age = HINTS.age;
+  if (role !== "CREW" && role !== "MEDICAL" && role !== "ADMIN") errors.role = HINTS.role;
+  const passwordError = testPassword(password);
+  if (passwordError) errors.password = passwordError;
+  return errors;
+}

@@ -41,6 +41,7 @@ pub fn run() {
             commands::write_month_snapshot,
             commands::export_records,
             commands::list_astronauts,
+            commands::bind_person,
             commands::create_astronaut,
             commands::home_cards,
             commands::list_tasks,

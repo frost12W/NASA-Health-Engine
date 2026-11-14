@@ -3,31 +3,16 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import profileMark from "./assets/profile-mark.png";
 import { api, desktopAvailable } from "./api";
-import type { Astronaut, HomeCard, JournalRow, MetricRow, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
+import type { HomeCard, JournalRow, MetricRow, PersonSession, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
 
-type CrewField = "name" | "age" | "role" | "pressure" | "pulse";
-
-const CREW_HINTS: Record<CrewField, string> = {
-  name: "Family name and given name.",
-  age: "Whole years, 18–99.",
-  role: "CREW, MEDICAL, or ADMIN.",
-  pressure: "Two numbers, higher first, such as 120/80.",
-  pulse: "Whole number, 30–220 bpm. An entry bound, not a grade.",
-};
-
-export function HomePage({ sync, onChanged }: { sync: SyncStatus | null; onChanged: () => Promise<void> }) {
-  const [cards, setCards] = useState<HomeCard[]>([]);
-  const [name, setName] = useState("");
-  const [age, setAge] = useState("");
-  const [role, setRole] = useState("");
-  const [pressure, setPressure] = useState("");
-  const [pulse, setPulse] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<CrewField, string>>>({});
+export function HomePage({ session, sync, onChanged, onLeave }: { session: PersonSession; sync: SyncStatus | null; onChanged: () => Promise<void>; onLeave: () => void }) {
+  const [card, setCard] = useState<HomeCard | null>(null);
   const [error, setError] = useState("");
 
   async function load() {
     if (!desktopAvailable()) return;
-    setCards(await api.home());
+    const cards = await api.home();
+    setCard(cards.find((item) => item.astronaut_id === session.astronautId) ?? null);
   }
 
   useEffect(() => {
@@ -36,101 +21,46 @@ export function HomePage({ sync, onChanged }: { sync: SyncStatus | null; onChang
       void load().catch(() => undefined);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [session.astronautId]);
 
   return (
     <section>
-      <p className="muted">Health checks are recorded when someone completes them. Nothing on this screen is a diagnosis.</p>
+      <p className="muted">Этот Health Engine открыт для одного астронавта. Записи на этой карточке не являются диагнозом.</p>
       {error && <p className="error">{error}</p>}
-      <div className="grid">
-        {cards.map((card) => (
-          <article className="panel crew-card" key={card.astronaut_id}>
-            <div className="profile">
-              <img className="profile-mark" src={profileMark} alt="" />
-              <p className="profile-age">{card.age_years ?? "—"}</p>
-              <h2>{card.display_name}</h2>
-              <p className="profile-role">{card.role}</p>
-            </div>
-            <p><span className={card.workflow_state === "CHECK RECORDED" ? "status done" : "status"}>{card.workflow_state}</span></p>
-            <div className="vitals">
-              <Vital kind="pulse" label="Pulse" value={card.pulse_bpm} unit="bpm" source={card.pulse_source} />
-              <Vital kind="breath" label="Breaths" value={card.respiratory_rate} unit="/min" source={card.respiratory_source} />
-              <Vital kind="sleep" label="Sleep" value={card.sleep_hours} unit="h" source={card.sleep_source} />
-              <Vital kind="mood" label="Wellbeing" value={card.wellbeing} unit="/ 5" source={card.wellbeing_source} />
-            </div>
-            <p className="muted">Last pressure {card.last_systolic ?? "—"}/{card.last_diastolic ?? "—"}</p>
-            <p>Today's check: <span className={taskClass(card.task_display_status)}>{card.task_display_status}</span></p>
-            <p className="crew-id">CREW ID {card.crew_identifier}</p>
-          </article>
-        ))}
-        {cards.length === 0 && <article className="panel">No crew members are configured on this computer.</article>}
-      </div>
+      <article className="panel crew-card personal-card">
+        <div className="profile">
+          <img className="profile-mark" src={profileMark} alt="" />
+          <p className="profile-age">{session.ageYears}</p>
+          <h2>{session.displayName}</h2>
+          <p className="profile-role">{session.role}</p>
+        </div>
+        <dl className="identity">
+          <div><dt>Возраст</dt><dd>{session.ageYears}</dd></div>
+          <div><dt>Имя</dt><dd>{session.displayName}</dd></div>
+          <div><dt>Роль</dt><dd>{session.role}</dd></div>
+          <div><dt>Персональный пароль</dt><dd className="mono">{session.sessionPassword}</dd></div>
+        </dl>
+        <p className="muted">Пароль проверен при входе и хранится только в этом окне. В базу и на диск он не записывается.</p>
+        <p><span className={card?.workflow_state === "CHECK RECORDED" ? "status done" : "status"}>{card?.workflow_state ?? "INSUFFICIENT DATA"}</span></p>
+        <div className="vitals">
+          <Vital kind="pulse" label="Pulse" value={card?.pulse_bpm ?? null} unit="bpm" source={card?.pulse_source ?? null} />
+          <Vital kind="breath" label="Breaths" value={card?.respiratory_rate ?? null} unit="/min" source={card?.respiratory_source ?? null} />
+          <Vital kind="sleep" label="Sleep" value={card?.sleep_hours ?? null} unit="h" source={card?.sleep_source ?? null} />
+          <Vital kind="mood" label="Wellbeing" value={card?.wellbeing ?? null} unit="/ 5" source={card?.wellbeing_source ?? null} />
+        </div>
+        <p className="muted">Last pressure {card?.last_systolic ?? "—"}/{card?.last_diastolic ?? "—"}</p>
+        <p>Today's check: <span className={taskClass(card?.task_display_status ?? "DUE")}>{card?.task_display_status ?? "DUE"}</span></p>
+        <p className="crew-id">PROFILE ID {card?.crew_identifier ?? session.crewIdentifier}</p>
+        <button type="button" onClick={() => { onLeave(); void onChanged(); }}>Выйти</button>
+      </article>
       <section className="panel" style={{ marginTop: "0.8rem" }}>
         <h2>Ground link</h2>
-        <p>{sync?.note ?? "No ground link is configured. Records stay on this computer."}</p>
+        <p>{sync?.note ?? "No ground link is configured. Records stay on this computer until a channel is available."}</p>
         <p className="mono">Records stored only here: {sync?.local_only_count ?? "—"}</p>
         <p className="muted">Last acknowledgement: {sync?.last_acknowledged_at ?? "none"}</p>
       </section>
-      <form
-        className="crew-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const nextErrors = validateCrew(name, age, role, pressure, pulse);
-          setFieldErrors(nextErrors);
-          if (Object.keys(nextErrors).length > 0) return;
-          const [systolic, diastolic] = pressure.split("/").map((part) => Number(part.trim()));
-          void api.createAstronaut(name.trim(), Number(age), role, systolic, diastolic, Number(pulse)).then(() => {
-            setName("");
-            setAge("");
-            setPressure("");
-            setPulse("");
-            setFieldErrors({});
-            return load();
-          }).then(onChanged).catch((reason: unknown) => setError(String(reason)));
-        }}
-      >
-        <CrewField label="Full name" hint={CREW_HINTS.name} error={fieldErrors.name}>
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </CrewField>
-        <CrewField label="Age" hint={CREW_HINTS.age} error={fieldErrors.age}>
-          <input value={age} inputMode="numeric" onChange={(event) => setAge(event.target.value)} />
-        </CrewField>
-        <CrewField label="Role" hint={CREW_HINTS.role} error={fieldErrors.role}>
-          <select value={role} onChange={(event) => setRole(event.target.value)}>
-            <option value="">Select</option>
-            <option>CREW</option>
-            <option>MEDICAL</option>
-            <option>ADMIN</option>
-          </select>
-        </CrewField>
-        <CrewField label="Last blood pressure" hint={CREW_HINTS.pressure} error={fieldErrors.pressure}>
-          <input value={pressure} placeholder="120/80" onChange={(event) => setPressure(event.target.value)} />
-        </CrewField>
-        <CrewField label="Last pulse" hint={CREW_HINTS.pulse} error={fieldErrors.pulse}>
-          <input value={pulse} inputMode="numeric" onChange={(event) => setPulse(event.target.value)} />
-        </CrewField>
-        <button type="submit">Add crew member</button>
-      </form>
     </section>
   );
-}
-
-function validateCrew(name: string, age: string, role: string, pressure: string, pulse: string): Partial<Record<CrewField, string>> {
-  const errors: Partial<Record<CrewField, string>> = {};
-  const trimmed = name.trim();
-  if (!trimmed || trimmed.length > 80 || !/[A-Za-z\u0400-\u04FF]/.test(trimmed)) errors.name = CREW_HINTS.name;
-  const years = Number(age);
-  if (!Number.isInteger(years) || years < 18 || years > 99) errors.age = CREW_HINTS.age;
-  if (role !== "CREW" && role !== "MEDICAL" && role !== "ADMIN") errors.role = CREW_HINTS.role;
-  const parts = pressure.split("/");
-  const systolic = Number(parts[0]?.trim());
-  const diastolic = Number(parts[1]?.trim());
-  if (parts.length !== 2 || !(systolic >= 40 && systolic <= 300) || !(diastolic >= 20 && diastolic <= 200) || systolic <= diastolic) {
-    errors.pressure = CREW_HINTS.pressure;
-  }
-  const bpm = Number(pulse);
-  if (!Number.isInteger(bpm) || bpm < 30 || bpm > 220) errors.pulse = CREW_HINTS.pulse;
-  return errors;
 }
 
 function CrewField({ label, hint, error, children }: { label: string; hint: string; error?: string; children: ReactNode }) {
@@ -216,13 +146,11 @@ const READINESS_RU: Record<string, string> = {
 
 type CheckPhase = "idle" | "recording" | "saving" | "saved" | "discarded";
 
-export function HealthCheckPage() {
-  const [crew, setCrew] = useState<Astronaut[]>([]);
-  const [astronautId, setAstronautId] = useState("");
+export function HealthCheckPage({ astronautId, displayName }: { astronautId: string; displayName: string }) {
   const [cameras, setCameras] = useState<Array<{ device_index: number; label: string }>>([]);
   const [deviceIndex, setDeviceIndex] = useState(0);
   const [preview, setPreview] = useState("");
-  const [message, setMessage] = useState("Выберите члена экипажа и откройте камеру.");
+  const [message, setMessage] = useState("Откройте камеру. Проверка идёт для этого профиля.");
   const [canStart, setCanStart] = useState(false);
   const [captureText, setCaptureText] = useState("Камера не открыта.");
   const [elapsed, setElapsed] = useState(0);
@@ -233,11 +161,12 @@ export function HealthCheckPage() {
   const [databasePath, setDatabasePath] = useState("");
   const [phase, setPhase] = useState<CheckPhase>("idle");
   const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState<"расписанию" | "самочувствию" | "">("");
   const sessionAstronaut = useRef("");
 
   useEffect(() => {
     if (!desktopAvailable()) return;
-    void api.astronauts().then(setCrew).catch((reason: unknown) => setError(String(reason)));
+    sessionAstronaut.current = astronautId;
     void api.info().then((info) => setDatabasePath(info.database_path)).catch((reason: unknown) => setError(String(reason)));
     let unlisten: (() => void) | undefined;
     void listen<WorkerEvent>("worker-event", (event) => {
@@ -286,7 +215,7 @@ export function HealthCheckPage() {
       unlisten?.();
       if (desktopAvailable()) void api.closeCamera().catch(() => undefined);
     };
-  }, []);
+  }, [astronautId]);
 
   const showNumber = result?.validity_status === "VALID" && typeof result.value_bpm === "number";
   const remaining = Math.max(0, duration - elapsed);
@@ -296,26 +225,19 @@ export function HealthCheckPage() {
   return (
     <section>
       <p>
-        Это 30-секундная диагностика. Камера оценивает пульс по изменению цвета кожи. Это не диагноз.
-        Видео в файл не пишется. В базу попадает только итог.
+        Это 30-секундная проверка пульса для {displayName}. Камера оценивает пульс по изменению цвета кожи и не определяет настроение.
+        Это не диагноз. Видео в файл не пишется. В базу попадает только итог, и он остаётся на этом компьютере.
       </p>
       <ol className="steps">
-        <li className={stepClass(1, astronautId, preview, phase)}>Выберите члена экипажа.</li>
-        <li className={stepClass(2, astronautId, preview, phase)}>Откройте камеру. Картинка остаётся на экране и в базу не сохраняется.</li>
-        <li className={stepClass(3, astronautId, preview, phase)}>Нажмите «Начать 30 секунд». Сигнал 30 секунд копится в памяти, на экране идёт отсчёт.</li>
-        <li className={stepClass(4, astronautId, preview, phase)}>Когда время вышло, итог сам записывается в локальную базу. Число пульса показывается только если проверки качества пройдены.</li>
+        <li className={stepClass(1, preview, phase)}>Личный профиль открыт. Проверка идёт только для этого астронавта.</li>
+        <li className={stepClass(2, preview, phase)}>Откройте камеру. Картинка остаётся на экране и в базу не сохраняется.</li>
+        <li className={stepClass(3, preview, phase)}>Запустите проверку по расписанию или по самочувствию. Сигнал 30 секунд копится в памяти.</li>
+        <li className={stepClass(4, preview, phase)}>Когда время вышло, итог сам записывается в локальную базу. Число пульса показывается только если проверки качества пройдены.</li>
       </ol>
       <p className="mono">Файл базы на этом компьютере: {databasePath || "откройте Health Engine, чтобы увидеть путь"}</p>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <label>Член экипажа
-          <select value={astronautId} onChange={(event) => setAstronautId(event.target.value)}>
-            <option value="">Выберите</option>
-            {crew.map((person) => (
-              <option key={person.astronaut_id} value={person.astronaut_id}>{person.display_name}</option>
-            ))}
-          </select>
-        </label>
+        <p className="profile-lock">Профиль: {displayName}</p>
         <label>Камера
           <select value={deviceIndex} onChange={(event) => setDeviceIndex(Number(event.target.value))}>
             {cameras.length === 0 && <option value={0}>Список пуст</option>}
@@ -329,22 +251,16 @@ export function HealthCheckPage() {
         <button
           type="button"
           disabled={busy || recording || !canStart || !astronautId}
-          onClick={() => void run(async () => {
-            sessionAstronaut.current = astronautId;
-            setPhase("recording");
-            setElapsed(0);
-            setDuration(30);
-            setResult(null);
-            setSaved("");
-            try {
-              await api.startMeasurement(astronautId);
-            } catch (reason) {
-              setPhase("idle");
-              throw reason;
-            }
-          })}
+          onClick={() => void begin("расписанию")}
         >
-          Начать 30 секунд
+          Проверка по расписанию
+        </button>
+        <button
+          type="button"
+          disabled={busy || recording || !canStart || !astronautId}
+          onClick={() => void begin("самочувствию")}
+        >
+          Проверка по самочувствию
         </button>
         <button type="button" disabled={busy || phase !== "recording"} onClick={() => void run(() => api.stopMeasurement())}>Остановить</button>
       </div>
@@ -352,7 +268,7 @@ export function HealthCheckPage() {
       <p className="mono">{captureText}</p>
       {phase === "recording" && (
         <div className="meter-block">
-          <p className="mono">Идёт диагностика. Осталось {remaining.toFixed(0)} с. В базу эта попытка ещё не записана.</p>
+          <p className="mono">Идёт проверка по {reason}. Осталось {remaining.toFixed(0)} с. В базу эта попытка ещё не записана. Камера не оценивает настроение.</p>
           <div className="meter" role="progressbar" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={elapsed}>
             <span style={{ width: `${fill}%` }} />
           </div>
@@ -394,6 +310,25 @@ export function HealthCheckPage() {
     </section>
   );
 
+  async function begin(nextReason: "расписанию" | "самочувствию") {
+    await run(async () => {
+      sessionAstronaut.current = astronautId;
+      setReason(nextReason);
+      setPhase("recording");
+      setElapsed(0);
+      setDuration(30);
+      setResult(null);
+      setSaved("");
+      try {
+        await api.startMeasurement(astronautId);
+      } catch (cause) {
+        setPhase("idle");
+        setReason("");
+        throw cause;
+      }
+    });
+  }
+
   async function run(action: () => Promise<unknown>) {
     setError("");
     setBusy(true);
@@ -407,8 +342,8 @@ export function HealthCheckPage() {
   }
 }
 
-function stepClass(step: number, astronautId: string, preview: string, phase: CheckPhase): string {
-  const current = !astronautId ? 1 : !preview ? 2 : phase === "recording" ? 3 : phase === "saving" || phase === "saved" || phase === "discarded" ? 4 : 3;
+function stepClass(step: number, preview: string, phase: CheckPhase): string {
+  const current = !preview ? 2 : phase === "recording" ? 3 : phase === "saving" || phase === "saved" || phase === "discarded" ? 4 : 3;
   if (step < current) return "done";
   if (step === current) return "current";
   return "";
@@ -435,9 +370,7 @@ function describeCapture(payload: WorkerEvent): string {
   return `${capture.backend ?? "камера"} · ${capture.width ?? "?"}×${capture.height ?? "?"} · заявлено ${capture.nominal_fps ?? "?"} кадр/с · ${measured} · ${format}`;
 }
 
-export function DetailPage() {
-  const [crew, setCrew] = useState<Astronaut[]>([]);
-  const [astronautId, setAstronautId] = useState("");
+export function DetailPage({ astronautId, displayName }: { astronautId: string; displayName: string }) {
   const [metrics, setMetrics] = useState<MetricRow[]>([]);
   const [journal, setJournal] = useState<JournalRow[]>([]);
   const [symptoms, setSymptoms] = useState<Array<{ id: string; label: string }>>([]);
@@ -447,16 +380,13 @@ export function DetailPage() {
   const [systolic, setSystolic] = useState("");
   const [diastolic, setDiastolic] = useState("");
   const [temperature, setTemperature] = useState("");
+  const [source, setSource] = useState("SELF_REPORTED");
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<DetailField, string>>>({});
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!desktopAvailable()) return;
-    void Promise.all([api.astronauts(), api.symptoms()]).then(([people, catalog]) => {
-      setCrew(people);
-      setSymptoms(catalog);
-      if (people[0]) setAstronautId(people[0].astronaut_id);
-    }).catch((reason: unknown) => setError(String(reason)));
+    void api.symptoms().then(setSymptoms).catch((reason: unknown) => setError(String(reason)));
   }, []);
 
   useEffect(() => {
@@ -470,7 +400,9 @@ export function DetailPage() {
   const pulse = metrics.filter((metric) => metric.metric_type === "PULSE_RATE" && metric.source_type === "CAMERA_DERIVED" && metric.validity_status === "VALID" && metric.value != null);
 
   const cameraRows = metrics.filter((metric) => metric.metric_type === "PULSE_RATE" && metric.source_type === "CAMERA_DERIVED");
-  const manualRows = metrics.filter((metric) => metric.source_type === "SELF_REPORTED");
+  const pressure = metrics.filter((metric) => metric.metric_type === "BLOOD_PRESSURE_SYSTOLIC" && metric.value != null && metric.validity_status === "VALID");
+  const temperatures = metrics.filter((metric) => metric.metric_type === "BODY_TEMPERATURE" && metric.value != null && metric.validity_status === "VALID");
+  const manualRows = metrics.filter((metric) => metric.source_type === "SELF_REPORTED" || metric.source_type === "EXTERNAL_DEVICE");
   const journalDays = dayCompleteness(journal);
   const logRows = [
     ...journal.map((entry) => ({
@@ -494,16 +426,16 @@ export function DetailPage() {
   return (
     <section className="detail-page">
       {error && <p className="error">{error}</p>}
-      <section className="panel crew-picker">
-        <label>Crew member
-          <select value={astronautId} onChange={(event) => setAstronautId(event.target.value)}>
-            {crew.map((person) => <option key={person.astronaut_id} value={person.astronaut_id}>{person.display_name}</option>)}
-          </select>
-        </label>
+      <section className="panel">
+        <h2>Сводка</h2>
+        <p className="profile-lock">Профиль: {displayName}</p>
+        <p className="muted">История и графики ниже относятся только к этому астронавту. Камера измеряет пульс и не определяет настроение. Предупреждения не ставят диагноз.</p>
       </section>
       <section className="panel detail-block">
         <h2>Valid camera pulse</h2>
-        {pulse.length === 0 ? <p>No valid measurements recorded yet.</p> : <PulseChart points={pulse} />}
+        {pulse.length === 0 ? <p>No valid measurements recorded yet.</p> : <SeriesChart points={pulse} label="Valid camera pulse values" stroke="#7dcea0" />}
+        {pressure.length > 0 && <SeriesChart points={pressure} label="Systolic pressure" stroke="#3ec6ff" />}
+        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Temperature" stroke="#e6c84a" />}
         <table>
           <thead><tr><th>Time (UTC)</th><th>Value</th><th>Validity</th></tr></thead>
           <tbody>
@@ -523,7 +455,7 @@ export function DetailPage() {
       </section>
       <section className="panel detail-block">
         <h2>Journal and manual entries</h2>
-        <p className="muted">Sleep, mood, and symptoms are self-reported. Blood pressure and temperature are typed by the crew. The camera does not measure them.</p>
+        <p className="muted">Sleep, mood, and symptoms are marked by this astronaut. The camera does not determine mood. Blood pressure and temperature are typed here, or taken from a connected instrument.</p>
         <form
           className="journal-form"
           onSubmit={(event) => {
@@ -549,6 +481,11 @@ export function DetailPage() {
           <CrewField label="Temperature °C" hint={DETAIL_HINTS.temperature} error={fieldErrors.temperature}>
             <input value={temperature} onChange={(event) => setTemperature(event.target.value)} />
           </CrewField>
+          <fieldset className="source-choice">
+            <legend>Pressure and temperature source</legend>
+            <label><span><input type="radio" name="reading-source" checked={source === "SELF_REPORTED"} onChange={() => setSource("SELF_REPORTED")} /> Typed here</span></label>
+            <label><span><input type="radio" name="reading-source" checked={source === "EXTERNAL_DEVICE"} onChange={() => setSource("EXTERNAL_DEVICE")} /> Connected instrument</span></label>
+          </fieldset>
           <button type="submit">Save entries</button>
           {fieldErrors.form && <p className="error">{fieldErrors.form}</p>}
         </form>
@@ -578,11 +515,11 @@ export function DetailPage() {
   );
 
   async function saveJournal() {
-    if (!astronautId) throw new Error("Choose a crew member.");
+    if (!astronautId) throw new Error("Open the personal profile before saving.");
     if (sleep) await api.addJournal(astronautId, "SLEEP", sleep);
     if (mood) await api.addJournal(astronautId, "MOOD", mood);
     for (const symptom of selectedSymptoms) await api.addJournal(astronautId, "SYMPTOM", symptom);
-    if (systolic || diastolic || temperature) await api.addManual(astronautId, systolic, diastolic, temperature);
+    if (systolic || diastolic || temperature) await api.addManual(astronautId, systolic, diastolic, temperature, source);
     setSleep("");
     setMood("");
     setSystolic("");
@@ -681,7 +618,7 @@ function JournalIcon() {
   );
 }
 
-function PulseChart({ points }: { points: MetricRow[] }) {
+function SeriesChart({ points, label, stroke }: { points: MetricRow[]; label: string; stroke: string }) {
   const ordered = [...points].reverse();
   const values = ordered.map((point) => point.value ?? 0);
   const min = Math.min(...values) - 5;
@@ -694,29 +631,28 @@ function PulseChart({ points }: { points: MetricRow[] }) {
     return `${index === 0 ? "M" : "L"}${x},${y}`;
   }).join(" ");
   return (
-    <svg className="chart" viewBox="0 0 100 100" role="img" aria-label="Valid camera pulse values">
-      <path d={path} fill="none" stroke="#7dcea0" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    <svg className="chart" viewBox="0 0 100 100" role="img" aria-label={label}>
+      <path d={path} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
 
-export function TasksPage() {
+export function TasksPage({ astronautId }: { astronautId: string }) {
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
     if (!desktopAvailable()) return;
-    void api.tasks().then(setTasks).catch((reason: unknown) => setError(String(reason)));
-  }, []);
+    void api.tasks().then((rows) => setTasks(rows.filter((task) => task.astronaut_id === astronautId))).catch((reason: unknown) => setError(String(reason)));
+  }, [astronautId]);
   return (
     <section>
-      <p className="muted">Completion means the check was saved, including an inconclusive attempt. It does not reward a particular pulse number.</p>
+      <p className="muted">Completion means this profile's check was saved, including an inconclusive attempt. It does not reward a particular pulse number.</p>
       {error && <p className="error">{error}</p>}
       <table>
-        <thead><tr><th>Crew</th><th>Task</th><th>Due (UTC)</th><th>State</th></tr></thead>
+        <thead><tr><th>Task</th><th>Due (UTC)</th><th>State</th></tr></thead>
         <tbody>
           {tasks.map((task) => (
             <tr key={task.task_id}>
-              <td>{task.display_name}</td>
               <td>Face health check</td>
               <td className="mono">{task.due_at_utc}</td>
               <td><span className={taskClass(task.display_status)}>{task.display_status}</span></td>
@@ -724,7 +660,7 @@ export function TasksPage() {
           ))}
         </tbody>
       </table>
-      {tasks.length === 0 && <p>No tasks yet. Add a crew member on Profile.</p>}
+      {tasks.length === 0 && <p>No check is scheduled for this profile yet.</p>}
     </section>
   );
 }
@@ -744,15 +680,15 @@ export function WikiPage() {
       </article>
       <article className="panel">
         <h2>What the camera cannot do</h2>
-        <p>It does not measure blood pressure, temperature, oxygen, or a medical diagnosis. A finger on the lens is not part of this check.</p>
+        <p>It does not measure blood pressure, temperature, oxygen, mood, or a medical diagnosis. A finger on the lens is not part of this check. Mood, sleep, and symptoms are entered by the astronaut.</p>
       </article>
       <article className="panel">
         <h2>Why a result can be missing</h2>
         <p>Movement, poor light, more than one face, a short recording, or a weak color signal means the program shows no pulse number. That is a failed measurement, not a statement about health.</p>
       </article>
       <article className="panel">
-        <h2>Accounts</h2>
-        <p>Role labels are stored for later. This version has no separate logins, so anyone at this computer can open the local records. The program assigns each profile a crew identifier. That identifier is the last line on the profile card and is included in exported records.</p>
+        <h2>Personal profile</h2>
+        <p>The opening screen checks a personal password and then discards it. The password is not written to the database, a file, or an account store. Name, age, and role are kept for this one profile. Opening the profile again with a different name replaces the previous profile on this computer.</p>
       </article>
       <article className="panel">
         <h2>Labels</h2>
@@ -760,33 +696,29 @@ export function WikiPage() {
       </article>
       <article className="panel">
         <h2>Reminders, alerts, and synchronization</h2>
-        <p>While the program is open it creates one face-check task per crew member per UTC day. Saving an attempt completes that task. A low-disk warning can be acknowledged; the visual warning remains until space is available. Records are not sent anywhere unless a ground link is configured. This version has no ground link, so nothing is marked synchronized.</p>
+        <p>While the program is open it creates one face-check task for this profile per UTC day. The check can also be started from how the astronaut feels. Saving an attempt completes that day's task. Warnings follow configured rules and do not diagnose. Records stay on this computer until a ground channel is configured. This version has no ground link, so nothing is marked synchronized.</p>
       </article>
     </section>
   );
 }
 
-export function SettingsPage({ storage, onChanged }: { storage: StorageStatus | null; onChanged: () => Promise<void> }) {
+export function SettingsPage({ session, storage, onChanged }: { session: PersonSession; storage: StorageStatus | null; onChanged: () => Promise<void> }) {
   const [info, setInfo] = useState<string>("");
   const [epoch, setEpoch] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [format, setFormat] = useState("JSON");
-  const [astronauts, setAstronauts] = useState<Astronaut[]>([]);
-  const [astronautId, setAstronautId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!desktopAvailable()) return;
-    void Promise.all([api.info(), api.config(), api.astronauts()]).then(([app, config, people]) => {
+    void Promise.all([api.info(), api.config()]).then(([app, config]) => {
       setInfo(`${app.version} · database ${app.database_path}`);
       setEpoch(config.mission_epoch_utc ?? "");
       setStart(config.circadian_start_utc ?? "");
       setEnd(config.circadian_end_utc ?? "");
       setFormat(config.export_format);
-      setAstronauts(people);
-      if (people[0]) setAstronautId(people[0].astronaut_id);
     }).catch((reason: unknown) => setError(String(reason)));
   }, []);
 
@@ -819,12 +751,7 @@ export function SettingsPage({ storage, onChanged }: { storage: StorageStatus | 
       <div className="row">
         <button type="button" onClick={() => void api.backup().then(setMessage).catch((reason: unknown) => setError(String(reason)))}>Create local backup</button>
         <button type="button" onClick={() => void api.snapshot().then(setMessage).catch((reason: unknown) => setError(String(reason)))}>Write this month's snapshot</button>
-        <label>Export crew
-          <select value={astronautId} onChange={(event) => setAstronautId(event.target.value)}>
-            {astronauts.map((person) => <option key={person.astronaut_id} value={person.astronaut_id}>{person.display_name}</option>)}
-          </select>
-        </label>
-        <button type="button" disabled={!astronautId} onClick={() => void api.exportRecords(astronautId).then(setMessage).catch((reason: unknown) => setError(String(reason)))}>Export selected format</button>
+        <button type="button" onClick={() => void api.exportRecords(session.astronautId).then(setMessage).catch((reason: unknown) => setError(String(reason)))}>Export this profile</button>
       </div>
       {message && <p>{message}</p>}
     </section>

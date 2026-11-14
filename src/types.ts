@@ -6,6 +6,16 @@ export interface Astronaut {
   display_name: string;
   role: string;
   profile_status: string;
+  age_years: number | null;
+}
+
+export interface PersonSession {
+  astronautId: string;
+  crewIdentifier: string;
+  displayName: string;
+  ageYears: number;
+  role: string;
+  sessionPassword: string;
 }
 
 export interface MissionClock {

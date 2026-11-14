@@ -82,6 +82,7 @@ pub fn app_info(state: State<AppState>) -> Result<Value, String> {
         "offline": true,
         "ground_endpoint_configured": false,
         "accounts_enabled": false,
+        "personal_profile": true,
         "worker_error": error,
     }))
 }
@@ -155,6 +156,17 @@ pub fn list_astronauts(state: State<AppState>) -> Result<Vec<db::Astronaut>, Str
 }
 
 #[tauri::command]
+pub fn bind_person(
+    state: State<AppState>,
+    display_name: String,
+    age_years: i64,
+    role: String,
+) -> Result<db::Astronaut, String> {
+    let conn = db(&state)?;
+    db::bind_person(&conn, &display_name, age_years, &role)
+}
+
+#[tauri::command]
 pub fn create_astronaut(
     state: State<AppState>,
     display_name: String,
@@ -220,9 +232,10 @@ pub fn add_manual_entries(
     systolic: String,
     diastolic: String,
     temperature: String,
+    source: String,
 ) -> Result<usize, String> {
     let conn = db(&state)?;
-    db::add_manual_entries(&conn, &astronaut_id, &systolic, &diastolic, &temperature)
+    db::add_manual_entries(&conn, &astronaut_id, &systolic, &diastolic, &temperature, &source)
 }
 
 #[tauri::command]

@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import logo from "./assets/health-engine-logo.png";
 import "./App.css";
 import { api, desktopAvailable } from "./api";
+import { LoginGate } from "./login";
 import { DetailPage, HealthCheckPage, HomePage, SettingsPage, TasksPage, WikiPage } from "./pages";
-import type { AlertRow, MissionClock, StorageStatus, SyncStatus } from "./types";
+import type { AlertRow, MissionClock, PersonSession, StorageStatus, SyncStatus } from "./types";
 
 type Page = "home" | "check" | "detail" | "tasks" | "wiki" | "settings";
 
@@ -45,6 +46,7 @@ export default function App() {
   const [metHover, setMetHover] = useState(false);
   const [missionPrompt, setMissionPrompt] = useState<"start" | "resume" | null>(null);
   const [missionError, setMissionError] = useState("");
+  const [session, setSession] = useState<PersonSession | null>(null);
   const desktop = desktopAvailable();
 
   async function refreshShell() {
@@ -146,7 +148,7 @@ export default function App() {
             <h2 id="mission-title">{missionPrompt === "start" ? "Start mission clock" : "Resume mission clock"}</h2>
             <p>
               {missionPrompt === "start"
-                ? "This clock times every crew health event from mission start. Press again to start."
+                ? "This clock times health events for this profile from mission start. Press again to start."
                 : "The frozen clock will run again from the paused time. Press again to resume."}
             </p>
             <div className="row">
@@ -170,7 +172,7 @@ export default function App() {
       {alerts.map((alert) => (
         <div className="banner warn" key={alert.alert_id}>
           <span>
-            System alert: {alert.rule_id}. Status {alert.status}. This is not a health diagnosis.
+            Rule {alert.rule_id}. Status {alert.status}. This warning follows a configured rule and does not diagnose.
           </span>
           {alert.status === "OPEN" && (
             <button type="button" onClick={() => void api.acknowledge(alert.alert_id).then(refreshShell)}>
@@ -189,13 +191,14 @@ export default function App() {
           ))}
         </nav>
         <main>
-          <div className="page" key={page}>
-          {page === "home" && <HomePage sync={sync} onChanged={refreshShell} />}
-          {page === "check" && <HealthCheckPage />}
-          {page === "detail" && <DetailPage />}
-          {page === "tasks" && <TasksPage />}
-          {page === "wiki" && <WikiPage />}
-          {page === "settings" && <SettingsPage storage={storage} onChanged={refreshShell} />}
+          <div className="page" key={session ? `${page}-${session.astronautId}` : page}>
+          {session && page === "home" && <HomePage session={session} sync={sync} onChanged={refreshShell} onLeave={() => setSession(null)} />}
+          {session && page === "check" && <HealthCheckPage astronautId={session.astronautId} displayName={session.displayName} />}
+          {session && page === "detail" && <DetailPage astronautId={session.astronautId} displayName={session.displayName} />}
+          {session && page === "tasks" && <TasksPage astronautId={session.astronautId} />}
+          {session && page === "wiki" && <WikiPage />}
+          {session && page === "settings" && <SettingsPage session={session} storage={storage} onChanged={refreshShell} />}
+          {!session && <p className="muted">Войдите в личный профиль, чтобы открыть Health Engine.</p>}
           </div>
           <p className="disclaimer">
             Health Engine supports health checks. It does not diagnose, treat, or decide fitness for duty. A camera pulse
@@ -203,6 +206,7 @@ export default function App() {
           </p>
         </main>
       </div>
+      {!session && <LoginGate onEnter={setSession} />}
     </div>
   );
 }
