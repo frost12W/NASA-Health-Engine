@@ -1,5 +1,6 @@
 // LOCAL MISSION SHELL FOR CREW HEALTH CHECKS.
 import { useEffect, useState } from "react";
+import logo from "./assets/health-engine-logo.png";
 import "./App.css";
 import { api, desktopAvailable } from "./api";
 import { DetailPage, HealthCheckPage, HomePage, SettingsPage, TasksPage, WikiPage } from "./pages";
@@ -91,6 +92,7 @@ export default function App() {
       ))}
       <div className="body">
         <nav>
+          <img className="brand" src={logo} alt="Health Engine" />
           {NAV.map((item) => (
             <button key={item.id} type="button" className={page === item.id ? "nav active" : "nav"} onClick={() => setPage(item.id)}>
               {item.label}
@@ -98,12 +100,14 @@ export default function App() {
           ))}
         </nav>
         <main>
+          <div className="page" key={page}>
           {page === "home" && <HomePage sync={sync} onChanged={refreshShell} />}
           {page === "check" && <HealthCheckPage />}
           {page === "detail" && <DetailPage />}
           {page === "tasks" && <TasksPage />}
           {page === "wiki" && <WikiPage />}
           {page === "settings" && <SettingsPage storage={storage} onChanged={refreshShell} />}
+          </div>
           <p className="disclaimer">
             Health Engine supports health checks. It does not diagnose, treat, or decide fitness for duty. A camera pulse
             number appears only after the signal-quality checks pass, and it remains an estimate.

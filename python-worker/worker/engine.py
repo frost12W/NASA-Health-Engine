@@ -15,12 +15,15 @@ import numpy as np
 from worker.face import FaceTracker
 from worker.format import fourcc_to_text
 from worker.protocol import WORKER_VERSION, event
-from worker.roi import draw_regions, mean_rgb, regions_from_box, regions_from_landmarks
+from worker.roi import draw_regions, mean_rgb_regions, regions_from_box, regions_from_landmarks, scale_regions
 from worker.signals import evaluate_recording
 
 MOTION_LIMIT = 8.0
-PREVIEW_SECONDS = 0.2
-PROGRESS_SECONDS = 0.5
+PREVIEW_SECONDS = 1.0 / 60.0
+PROGRESS_SECONDS = 0.25
+DETECT_SECONDS = 0.05
+PREVIEW_WIDTH = 640
+CHECK_SECONDS = 30.0
 
 
 def utc_now() -> str:
@@ -41,6 +44,10 @@ class Engine:
         self.prev_small = None
         self.last_preview = 0.0
         self.last_progress = 0.0
+        self.last_faces = None
+        self.last_regions = None
+        self.last_detect = 0.0
+        self.frame_times: list[float] = []
         self.thread = threading.Thread(target=self._run, name="health-engine-camera", daemon=True)
         self.thread.start()
 
@@ -121,6 +128,10 @@ class Engine:
         self.camera_open.clear()
         self.meta = {}
         self.prev_small = None
+        self.last_faces = None
+        self.last_regions = None
+        self.last_detect = 0.0
+        self.frame_times = []
 
     def _open_backend(self, index: int, request_yuy2: bool):
         cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
@@ -138,9 +149,14 @@ class Engine:
             return None, backend
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_FPS, 30)
         if request_yuy2:
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUY2"))
+        # The driver is not pinned at 30. The highest rate it grants for this size is kept.
+        prefer_fastest_rate(cap)
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
         return cap, backend
 
     def _read_meta(self, cap, backend: str, index: int, requested_yuy2: bool) -> dict:
@@ -153,6 +169,7 @@ class Engine:
             "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
             "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
             "nominal_fps": float(cap.get(cv2.CAP_PROP_FPS)),
+            "measured_fps": None,
             "yuy2_requested": requested_yuy2,
             "yuy2_active": pixel_format == "YUY2",
         }
@@ -187,8 +204,8 @@ class Engine:
             return {"ok": False, "error": "Open a camera before starting a measurement."}
         if self.measure is not None:
             return {"ok": False, "error": "A measurement is already running."}
-        duration = float(payload.get("duration_seconds", 15))
-        duration = min(40.0, max(8.0, duration))
+        duration = float(payload.get("duration_seconds", CHECK_SECONDS))
+        duration = min(60.0, max(8.0, duration))
         self.measure = {
             "session_id": str(payload.get("session_id") or ""),
             "astronaut_id": str(payload.get("astronaut_id") or ""),
@@ -216,15 +233,22 @@ class Engine:
 
     def _on_frame(self, frame: np.ndarray) -> None:
         assert self.tracker is not None
-        faces = self.tracker.detect(frame)
-        regions = None
-        color = None
-        if faces.count == 1 and faces.landmarks:
-            regions = regions_from_landmarks(faces.landmarks[0], frame.shape[1], frame.shape[0])
-            color = mean_rgb(frame, build_mask_safe(regions, frame.shape[1], frame.shape[0]))
-        elif faces.count == 1 and faces.boxes:
-            regions = regions_from_box(faces.boxes[0])
-            color = mean_rgb(frame, build_mask_safe(regions, frame.shape[1], frame.shape[0]))
+        now = time.perf_counter()
+        self._note_frame_rate(now)
+        if self.last_faces is None or now - self.last_detect >= DETECT_SECONDS:
+            faces = self._detect_scaled(frame)
+            self.last_faces = faces
+            self.last_detect = now
+            regions = None
+            if faces.count == 1 and faces.landmarks:
+                regions = regions_from_landmarks(faces.landmarks[0], frame.shape[1], frame.shape[0])
+            elif faces.count == 1 and faces.boxes:
+                regions = regions_from_box(faces.boxes[0])
+            self.last_regions = regions
+        else:
+            faces = self.last_faces
+            regions = self.last_regions
+        color = mean_rgb_regions(frame, regions) if regions is not None else None
 
         small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (160, 90))
         brightness = float(small.mean())
@@ -252,22 +276,47 @@ class Engine:
             if elapsed >= self.measure["duration"]:
                 self._finish("COMPLETE")
 
-        now = time.perf_counter()
         if now - self.last_preview >= PREVIEW_SECONDS:
             self.last_preview = now
             self._emit("preview", self._preview_payload(frame, regions, faces, exposure_bad, motion_bad))
 
+    def _note_frame_rate(self, now: float) -> None:
+        self.frame_times.append(now)
+        cutoff = now - 1.0
+        while len(self.frame_times) > 2 and self.frame_times[0] < cutoff:
+            self.frame_times.pop(0)
+        if len(self.frame_times) >= 2:
+            span = self.frame_times[-1] - self.frame_times[0]
+            if span > 0:
+                self.meta["measured_fps"] = round((len(self.frame_times) - 1) / span, 1)
+
+    def _detect_scaled(self, frame: np.ndarray):
+        assert self.tracker is not None
+        height, width = frame.shape[:2]
+        detect_frame = frame
+        scale = 1.0
+        if width > 360:
+            scale = 360.0 / width
+            detect_frame = cv2.resize(frame, (360, max(1, int(round(height * scale)))), interpolation=cv2.INTER_AREA)
+        faces = self.tracker.detect(detect_frame)
+        if scale != 1.0 and faces.boxes:
+            inverse = 1.0 / scale
+            faces.boxes = [tuple(int(round(value * inverse)) for value in box) for box in faces.boxes]
+        return faces
+
     def _preview_payload(self, frame, regions, faces, exposure_bad: bool, motion_bad: bool) -> dict:
         message, can_start = readiness_message(faces, regions is not None, exposure_bad, motion_bad, self.tracker)
-        view = frame.copy()
+        height, width = frame.shape[:2]
+        scale = 1.0
+        if width > PREVIEW_WIDTH:
+            scale = PREVIEW_WIDTH / width
+            view = cv2.resize(frame, (PREVIEW_WIDTH, max(1, int(height * scale))), interpolation=cv2.INTER_LINEAR)
+        else:
+            view = frame.copy()
         if regions is not None:
-            draw_regions(view, regions)
-        height, width = view.shape[:2]
-        if width > 480:
-            scale = 480.0 / width
-            view = cv2.resize(view, (480, max(1, int(height * scale))))
+            draw_regions(view, scale_regions(regions, scale) if scale != 1.0 else regions)
         cv2.putText(view, message[:70], (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (240, 240, 240), 2, cv2.LINE_AA)
-        ok, encoded = cv2.imencode(".jpg", view, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+        ok, encoded = cv2.imencode(".jpg", view, [int(cv2.IMWRITE_JPEG_QUALITY), 72])
         jpeg = base64.b64encode(encoded.tobytes()).decode("ascii") if ok else ""
         return {
             "jpeg_base64": jpeg,
@@ -277,7 +326,7 @@ class Engine:
                 "face_count": faces.count,
                 "detector": faces.backend,
             },
-            "capture": self.meta,
+            "capture": dict(self.meta),
         }
 
     def _finish(self, status: str) -> None:
@@ -363,10 +412,19 @@ class Engine:
         self._emit("result", payload)
 
 
-def build_mask_safe(regions, width: int, height: int):
-    from worker.roi import build_mask
-
-    return build_mask(regions, width, height)
+def prefer_fastest_rate(cap) -> None:
+    """Keep the fastest rate the driver reports. The old 30 fps pin is not reapplied."""
+    baseline = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+    chosen = baseline
+    chosen_request = baseline
+    for requested in (120, 90, 60):
+        cap.set(cv2.CAP_PROP_FPS, float(requested))
+        granted = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+        if granted > chosen + 0.5:
+            chosen = granted
+            chosen_request = granted
+    if chosen_request > 0:
+        cap.set(cv2.CAP_PROP_FPS, chosen_request)
 
 
 def readiness_message(faces, has_region: bool, exposure_bad: bool, motion_bad: bool, tracker: FaceTracker | None) -> tuple[str, bool]:

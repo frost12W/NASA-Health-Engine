@@ -270,7 +270,7 @@ pub fn start_measurement(state: State<AppState>, astronaut_id: String) -> Result
         json!({
             "session_id": session_id,
             "astronaut_id": astronaut_id,
-            "duration_seconds": 15
+            "duration_seconds": 30
         }),
         Duration::from_secs(8),
     )?;

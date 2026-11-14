@@ -114,6 +114,42 @@ def build_mask(regions: Regions, width: int, height: int) -> np.ndarray:
     return mask
 
 
+def scale_regions(regions: Regions, scale: float) -> Regions:
+    return Regions(
+        [(point[0] * scale, point[1] * scale) for point in regions.forehead],
+        [
+            Ellipse(ellipse.cx * scale, ellipse.cy * scale, ellipse.rx * scale, ellipse.ry * scale, ellipse.angle)
+            for ellipse in regions.cheeks
+        ],
+        regions.face_width * scale,
+    )
+
+
+def mean_rgb_regions(frame_bgr: np.ndarray, regions: Regions, min_pixels: int = 40) -> np.ndarray | None:
+    """Average skin color from a crop around the forehead and cheeks."""
+    height, width = frame_bgr.shape[:2]
+    xs = [point[0] for point in regions.forehead]
+    ys = [point[1] for point in regions.forehead]
+    for ellipse in regions.cheeks:
+        xs.extend((ellipse.cx - ellipse.rx, ellipse.cx + ellipse.rx))
+        ys.extend((ellipse.cy - ellipse.ry, ellipse.cy + ellipse.ry))
+    if not xs:
+        return None
+    x0 = max(0, int(math.floor(min(xs))) - 2)
+    y0 = max(0, int(math.floor(min(ys))) - 2)
+    x1 = min(width, int(math.ceil(max(xs))) + 3)
+    y1 = min(height, int(math.ceil(max(ys))) + 3)
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return None
+    crop = frame_bgr[y0:y1, x0:x1]
+    shifted = Regions(
+        [(point[0] - x0, point[1] - y0) for point in regions.forehead],
+        [Ellipse(ellipse.cx - x0, ellipse.cy - y0, ellipse.rx, ellipse.ry, ellipse.angle) for ellipse in regions.cheeks],
+        regions.face_width,
+    )
+    return mean_rgb(crop, build_mask(shifted, crop.shape[1], crop.shape[0]), min_pixels)
+
+
 def mean_rgb(frame_bgr: np.ndarray, mask: np.ndarray, min_pixels: int = 40) -> np.ndarray | None:
     if frame_bgr.shape[:2] != mask.shape:
         raise ValueError("the skin mask size does not match the frame")

@@ -117,6 +117,7 @@ export interface WorkerEvent {
     width?: number;
     height?: number;
     nominal_fps?: number;
+    measured_fps?: number | null;
     backend?: string;
     yuy2_requested?: boolean;
     yuy2_active?: boolean;

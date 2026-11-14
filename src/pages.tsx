@@ -1,6 +1,6 @@
 // CREW PAGES FOR CHECKS, RECORDS, TASKS, HELP, AND SETTINGS.
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, desktopAvailable } from "./api";
 import type { Astronaut, HomeCard, JournalRow, MetricRow, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
 
@@ -73,41 +73,80 @@ export function HomePage({ sync, onChanged }: { sync: SyncStatus | null; onChang
   );
 }
 
+const READINESS_RU: Record<string, string> = {
+  "Face landmarks are unavailable, so a face pulse check cannot start.": "Модель лица недоступна, проверку начать нельзя.",
+  "Change the light so the face is neither dark nor washed out.": "Поправьте свет: лицо не должно быть тёмным или засвеченным.",
+  "Hold still and look toward the camera.": "Не двигайтесь и смотрите в камеру.",
+  "Place one face in the frame.": "В кадре должно быть одно лицо.",
+  "Leave only one person in the frame.": "В кадре должен остаться один человек.",
+  "The forehead and cheeks are not clear enough.": "Лоб и щёки видны недостаточно ясно.",
+  "Hold still. The face check can start.": "Можно начинать. Держите лицо неподвижно.",
+};
+
+type CheckPhase = "idle" | "recording" | "saving" | "saved" | "discarded";
+
 export function HealthCheckPage() {
   const [crew, setCrew] = useState<Astronaut[]>([]);
   const [astronautId, setAstronautId] = useState("");
   const [cameras, setCameras] = useState<Array<{ device_index: number; label: string }>>([]);
   const [deviceIndex, setDeviceIndex] = useState(0);
   const [preview, setPreview] = useState("");
-  const [message, setMessage] = useState("Choose a crew member, then open a camera.");
+  const [message, setMessage] = useState("Выберите члена экипажа и откройте камеру.");
   const [canStart, setCanStart] = useState(false);
-  const [captureText, setCaptureText] = useState("No camera is open.");
-  const [progress, setProgress] = useState("");
+  const [captureText, setCaptureText] = useState("Камера не открыта.");
+  const [elapsed, setElapsed] = useState(0);
+  const [duration, setDuration] = useState(30);
   const [result, setResult] = useState<WorkerEvent | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const [databasePath, setDatabasePath] = useState("");
+  const [phase, setPhase] = useState<CheckPhase>("idle");
   const [busy, setBusy] = useState(false);
+  const sessionAstronaut = useRef("");
 
   useEffect(() => {
     if (!desktopAvailable()) return;
     void api.astronauts().then(setCrew).catch((reason: unknown) => setError(String(reason)));
+    void api.info().then((info) => setDatabasePath(info.database_path)).catch((reason: unknown) => setError(String(reason)));
     let unlisten: (() => void) | undefined;
     void listen<WorkerEvent>("worker-event", (event) => {
       const payload = event.payload;
       if (payload.event === "preview") {
         if (payload.jpeg_base64) setPreview(`data:image/jpeg;base64,${payload.jpeg_base64}`);
-        setMessage(payload.readiness?.message ?? "Camera is open.");
+        const raw = payload.readiness?.message ?? "Камера открыта.";
+        setMessage(READINESS_RU[raw] ?? raw);
         setCanStart(Boolean(payload.readiness?.can_start));
         setCaptureText(describeCapture(payload));
       }
       if (payload.event === "progress") {
-        setProgress(`${payload.elapsed_seconds ?? 0}s / ${payload.duration_seconds ?? 0}s · usable frames ${payload.status ?? "COLLECTING"}`);
+        setElapsed(Number(payload.elapsed_seconds ?? 0));
+        setDuration(Number(payload.duration_seconds ?? 30));
+        setPhase("recording");
         setResult(null);
+        setSaved("");
       }
       if (payload.event === "result") {
         setResult(payload);
-        setProgress("");
         setCanStart(false);
+        const validity = payload.validity_status;
+        const status = payload.status;
+        const person = sessionAstronaut.current;
+        const keep = (validity === "VALID" || validity === "INCONCLUSIVE") && status !== "ABORTED" && status !== "DEVICE_ERROR";
+        if (keep && person) {
+          setPhase("saving");
+          void api.saveResult(person).then(async (id) => {
+            const info = await api.info();
+            setDatabasePath(info.database_path);
+            setSaved(id);
+            setPhase("saved");
+          }).catch((reason: unknown) => {
+            setPhase("idle");
+            setError(reason instanceof Error ? reason.message : String(reason));
+          });
+        } else {
+          setPhase("discarded");
+          setSaved("");
+        }
       }
     }).then((stop) => {
       unlisten = stop;
@@ -119,53 +158,105 @@ export function HealthCheckPage() {
   }, []);
 
   const showNumber = result?.validity_status === "VALID" && typeof result.value_bpm === "number";
-  const canSave = result?.validity_status === "VALID" || result?.validity_status === "INCONCLUSIVE";
+  const remaining = Math.max(0, duration - elapsed);
+  const fill = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0;
+  const recording = phase === "recording" || phase === "saving";
 
   return (
     <section>
-      <h1>Face health check</h1>
-      <p>This estimates pulse from small skin-color changes. It is not a diagnosis, and poor light or movement can make it fail.</p>
+      <h1>Проверка по лицу</h1>
+      <p>
+        Это 30-секундная диагностика. Камера оценивает пульс по изменению цвета кожи. Это не диагноз.
+        Видео в файл не пишется. В базу попадает только итог.
+      </p>
+      <ol className="steps">
+        <li className={stepClass(1, astronautId, preview, phase)}>Выберите члена экипажа.</li>
+        <li className={stepClass(2, astronautId, preview, phase)}>Откройте камеру. Картинка остаётся на экране и в базу не сохраняется.</li>
+        <li className={stepClass(3, astronautId, preview, phase)}>Нажмите «Начать 30 секунд». Сигнал 30 секунд копится в памяти, на экране идёт отсчёт.</li>
+        <li className={stepClass(4, astronautId, preview, phase)}>Когда время вышло, итог сам записывается в локальную базу. Число пульса показывается только если проверки качества пройдены.</li>
+      </ol>
+      <p className="mono">Файл базы на этом компьютере: {databasePath || "откройте Health Engine, чтобы увидеть путь"}</p>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <label>Crew member
+        <label>Член экипажа
           <select value={astronautId} onChange={(event) => setAstronautId(event.target.value)}>
-            <option value="">Select</option>
+            <option value="">Выберите</option>
             {crew.map((person) => (
               <option key={person.astronaut_id} value={person.astronaut_id}>{person.display_name}</option>
             ))}
           </select>
         </label>
-        <label>Camera
+        <label>Камера
           <select value={deviceIndex} onChange={(event) => setDeviceIndex(Number(event.target.value))}>
-            {cameras.length === 0 && <option value={0}>Not scanned</option>}
+            {cameras.length === 0 && <option value={0}>Список пуст</option>}
             {cameras.map((camera) => (
               <option key={camera.device_index} value={camera.device_index}>{camera.label}</option>
             ))}
           </select>
         </label>
-        <button type="button" disabled={busy} onClick={() => void run(async () => setCameras((await api.cameras()).cameras))}>Scan cameras</button>
-        <button type="button" disabled={busy} onClick={() => void run(async () => { await api.openCamera(deviceIndex); setSaved(""); setResult(null); })}>Open camera</button>
-        <button type="button" disabled={busy || !canStart || !astronautId} onClick={() => void run(() => api.startMeasurement(astronautId))}>Start 15 second check</button>
-        <button type="button" disabled={busy} onClick={() => void run(() => api.stopMeasurement())}>Stop</button>
+        <button type="button" disabled={busy || recording} onClick={() => void run(async () => setCameras((await api.cameras()).cameras))}>Найти камеры</button>
+        <button type="button" disabled={busy || recording} onClick={() => void run(async () => { await api.openCamera(deviceIndex); setSaved(""); setResult(null); setPhase("idle"); })}>Открыть камеру</button>
+        <button
+          type="button"
+          disabled={busy || recording || !canStart || !astronautId}
+          onClick={() => void run(async () => {
+            sessionAstronaut.current = astronautId;
+            setPhase("recording");
+            setElapsed(0);
+            setDuration(30);
+            setResult(null);
+            setSaved("");
+            try {
+              await api.startMeasurement(astronautId);
+            } catch (reason) {
+              setPhase("idle");
+              throw reason;
+            }
+          })}
+        >
+          Начать 30 секунд
+        </button>
+        <button type="button" disabled={busy || phase !== "recording"} onClick={() => void run(() => api.stopMeasurement())}>Остановить</button>
       </div>
       <p>{message}</p>
       <p className="mono">{captureText}</p>
-      {progress && <p className="mono">{progress}</p>}
-      {preview ? <img className="preview" alt="Camera preview with face guide" src={preview} /> : <div className="preview" />}
+      {phase === "recording" && (
+        <div className="meter-block">
+          <p className="mono">Идёт диагностика. Осталось {remaining.toFixed(0)} с. В базу эта попытка ещё не записана.</p>
+          <div className="meter" role="progressbar" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={elapsed}>
+            <span style={{ width: `${fill}%` }} />
+          </div>
+        </div>
+      )}
+      {phase === "saving" && <p className="mono">Записываю итог в базу…</p>}
+      <div className={phase === "recording" ? "preview-frame live" : "preview-frame"}>
+        {preview ? <img className="preview" alt="Предпросмотр камеры с зонами лба и щёк" src={preview} /> : <div className="preview" />}
+      </div>
       {result && (
         <section className="panel">
-          <h2>Result</h2>
+          <h2>Итог</h2>
           {showNumber ? <p className="pulse">{result.value_bpm}<span style={{ fontSize: "1rem" }}> bpm</span></p> : <p className="pulse">—</p>}
-          <p>{showNumber ? "Estimate, not a diagnosis." : "No reliable estimate obtained."}</p>
-          <p>{result.diagnostic_summary}</p>
+          <p>{outcomeText(phase, result)}</p>
+          <p className="muted">{result.diagnostic_summary}</p>
           <ul>{(result.rejection_reasons ?? []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-          <p className="muted">Validity {result.validity_status ?? "unknown"}. Quality checks are experimental and are not a probability.</p>
-          {canSave && astronautId && (
-            <button type="button" onClick={() => void run(async () => setSaved(await api.saveResult(astronautId)))}>Save this attempt on this computer</button>
+          <p className="muted">Статус {result.validity_status ?? "неизвестен"}. Проверки качества экспериментальные и не являются вероятностью.</p>
+          {phase === "saved" && saved && <p>Запись {saved} сохранена. Файл: {databasePath}</p>}
+          {phase === "discarded" && <p>Эта попытка в базу не записана. Остановка и сбой камеры не сохраняются.</p>}
+          {phase === "idle" && (result.validity_status === "VALID" || result.validity_status === "INCONCLUSIVE") && sessionAstronaut.current && (
+            <button type="button" onClick={() => void run(async () => {
+              setPhase("saving");
+              try {
+                const id = await api.saveResult(sessionAstronaut.current);
+                setSaved(id);
+                setPhase("saved");
+              } catch (reason) {
+                setPhase("idle");
+                throw reason;
+              }
+            })}>Повторить запись в базу</button>
           )}
-          {saved && <p>Saved record {saved}. It stays on this computer.</p>}
           <details>
-            <summary>Technical diagnostics</summary>
+            <summary>Техническая диагностика</summary>
             <pre className="mono">{JSON.stringify(result.quality_components ?? {}, null, 2)}</pre>
           </details>
         </section>
@@ -186,13 +277,32 @@ export function HealthCheckPage() {
   }
 }
 
+function stepClass(step: number, astronautId: string, preview: string, phase: CheckPhase): string {
+  const current = !astronautId ? 1 : !preview ? 2 : phase === "recording" ? 3 : phase === "saving" || phase === "saved" || phase === "discarded" ? 4 : 3;
+  if (step < current) return "done";
+  if (step === current) return "current";
+  return "";
+}
+
+function outcomeText(phase: CheckPhase, result: WorkerEvent): string {
+  if (phase === "saving") return "Диагностика закончилась. Записываю итог в базу.";
+  if (phase === "idle" && (result.validity_status === "VALID" || result.validity_status === "INCONCLUSIVE")) {
+    return "Итог получен, но в базу не записан. Можно повторить запись.";
+  }
+  if (phase === "discarded") return "Надёжная запись не создана.";
+  if (result.validity_status === "VALID") return "Оценка пульса получена и записана. Это не диагноз.";
+  if (result.validity_status === "INCONCLUSIVE") return "Число пульса не показано: качества сигнала не хватило. Сама попытка записана как недостаточно данных.";
+  return "Надёжной оценки нет.";
+}
+
 function describeCapture(payload: WorkerEvent): string {
   const capture = payload.capture;
-  if (!capture) return "Capture mode has not been reported.";
-  const yuy2 = capture.yuy2_requested
-    ? `YUY2 was requested. The camera provided ${capture.pixel_format ?? "an unknown format"}.`
-    : `The camera provided ${capture.pixel_format ?? "an unknown format"}.`;
-  return `${capture.backend ?? "camera"} · ${capture.width ?? "?"}×${capture.height ?? "?"} · nominal ${capture.nominal_fps ?? "?"} fps · ${yuy2}`;
+  if (!capture) return "Режим камеры ещё не сообщён.";
+  const measured = capture.measured_fps != null ? `поток сейчас ${capture.measured_fps} кадр/с` : "поток ещё измеряется";
+  const format = capture.yuy2_requested
+    ? `запрошен YUY2, камера дала ${capture.pixel_format ?? "неизвестный формат"}`
+    : `камера дала ${capture.pixel_format ?? "неизвестный формат"}`;
+  return `${capture.backend ?? "камера"} · ${capture.width ?? "?"}×${capture.height ?? "?"} · заявлено ${capture.nominal_fps ?? "?"} кадр/с · ${measured} · ${format}`;
 }
 
 export function DetailPage() {
