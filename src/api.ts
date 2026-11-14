@@ -38,6 +38,8 @@ export const api = {
   astronauts: () => call<Astronaut[]>("list_astronauts"),
   bindPerson: (displayName: string, ageYears: number, role: string) =>
     call<Astronaut>("bind_person", { displayName, ageYears, role }),
+  matchPerson: (displayName: string) => call<Astronaut>("match_person", { displayName }),
+  overwritePerson: (displayName: string) => call<Astronaut>("overwrite_person_name", { displayName }),
   createAstronaut: (displayName: string, ageYears: number, role: string, systolic: number, diastolic: number, pulse: number) =>
     call<string>("create_astronaut", { displayName, ageYears, role, systolic, diastolic, pulse }),
   startMission: () => call<void>("start_mission"),

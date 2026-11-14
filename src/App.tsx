@@ -4,18 +4,17 @@ import logo from "./assets/health-engine-logo.png";
 import "./App.css";
 import { api, desktopAvailable } from "./api";
 import { LoginGate } from "./login";
-import { DetailPage, HealthCheckPage, HomePage, SettingsPage, TasksPage, WikiPage } from "./pages";
+import { CheckFlow } from "./check-flow";
+import { DetailPage, HomePage, SettingsPage, WikiPage, type CheckReason } from "./pages";
 import type { AlertRow, MissionClock, PersonSession, StorageStatus, SyncStatus } from "./types";
 
-type Page = "home" | "check" | "detail" | "tasks" | "wiki" | "settings";
+type Page = "home" | "check" | "history" | "settings";
 
 const NAV: Array<{ id: Page; label: string }> = [
-  { id: "home", label: "Profile" },
-  { id: "check", label: "Camera monitoring" },
-  { id: "detail", label: "Detail monitoring" },
-  { id: "tasks", label: "Health achieve" },
-  { id: "wiki", label: "Health Engine wiki" },
-  { id: "settings", label: "Setup & backups" },
+  { id: "home", label: "Сводка" },
+  { id: "check", label: "Проверка" },
+  { id: "history", label: "История" },
+  { id: "settings", label: "Настройки" },
 ];
 
 function browserClock(): MissionClock {
@@ -47,6 +46,7 @@ export default function App() {
   const [missionPrompt, setMissionPrompt] = useState<"start" | "resume" | null>(null);
   const [missionError, setMissionError] = useState("");
   const [session, setSession] = useState<PersonSession | null>(null);
+  const [checkReason, setCheckReason] = useState<CheckReason>("самочувствию");
   const desktop = desktopAvailable();
 
   async function refreshShell() {
@@ -192,12 +192,33 @@ export default function App() {
         </nav>
         <main>
           <div className="page" key={session ? `${page}-${session.astronautId}` : page}>
-          {session && page === "home" && <HomePage session={session} sync={sync} onChanged={refreshShell} onLeave={() => setSession(null)} />}
-          {session && page === "check" && <HealthCheckPage astronautId={session.astronautId} displayName={session.displayName} />}
-          {session && page === "detail" && <DetailPage astronautId={session.astronautId} displayName={session.displayName} />}
-          {session && page === "tasks" && <TasksPage astronautId={session.astronautId} />}
-          {session && page === "wiki" && <WikiPage />}
-          {session && page === "settings" && <SettingsPage session={session} storage={storage} onChanged={refreshShell} />}
+          {session && page === "home" && (
+            <HomePage
+              session={session}
+              sync={sync}
+              onLeave={() => setSession(null)}
+              onStart={(reason) => { setCheckReason(reason); setPage("check"); }}
+              onOpenHistory={() => setPage("history")}
+            />
+          )}
+          {session && page === "check" && (
+            <CheckFlow
+              astronautId={session.astronautId}
+              displayName={session.displayName}
+              reason={checkReason}
+              onDone={() => { setPage("home"); void refreshShell(); }}
+            />
+          )}
+          {session && page === "history" && <DetailPage astronautId={session.astronautId} displayName={session.displayName} />}
+          {session && page === "settings" && (
+            <>
+              <SettingsPage session={session} storage={storage} onChanged={refreshShell} />
+              <details className="panel">
+                <summary>Как устроена проверка</summary>
+                <WikiPage />
+              </details>
+            </>
+          )}
           {!session && <p className="muted">Войдите в личный профиль, чтобы открыть Health Engine.</p>}
           </div>
           <p className="disclaimer">

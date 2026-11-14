@@ -156,6 +156,18 @@ pub fn list_astronauts(state: State<AppState>) -> Result<Vec<db::Astronaut>, Str
 }
 
 #[tauri::command]
+pub fn match_person(state: State<AppState>, display_name: String) -> Result<db::Astronaut, String> {
+    let conn = db(&state)?;
+    db::match_person(&conn, &display_name)
+}
+
+#[tauri::command]
+pub fn overwrite_person_name(state: State<AppState>, display_name: String) -> Result<db::Astronaut, String> {
+    let conn = db(&state)?;
+    db::overwrite_person_name(&conn, &display_name)
+}
+
+#[tauri::command]
 pub fn bind_person(
     state: State<AppState>,
     display_name: String,
@@ -241,11 +253,16 @@ pub fn add_manual_entries(
 #[tauri::command]
 pub fn sync_status(state: State<AppState>) -> Result<Value, String> {
     let conn = db(&state)?;
+    let (waiting, sent, error) = db::queue_counts(&conn)?;
     Ok(json!({
         "ground_endpoint_configured": false,
+        "channel": "unavailable",
         "last_acknowledged_at": Value::Null,
         "local_only_count": db::local_only_count(&conn)?,
-        "note": "No ground link is configured. Records stay on this computer and are not marked synchronized."
+        "waiting_count": waiting,
+        "sent_count": sent,
+        "error_count": error,
+        "note": "The ground channel is not configured. Records stay on this computer until a channel exists. This status is not a diagnosis."
     }))
 }
 

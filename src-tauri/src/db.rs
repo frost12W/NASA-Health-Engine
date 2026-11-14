@@ -288,6 +288,48 @@ pub fn bind_person(conn: &Connection, display_name: &str, age_years: i64, role: 
     load_astronaut(conn, &id)
 }
 
+pub fn match_person(conn: &Connection, display_name: &str) -> Result<Astronaut, String> {
+    let name = validate_person_name(display_name)?;
+    let active = list_astronauts(conn)?;
+    active
+        .into_iter()
+        .find(|person| person.display_name.trim().to_lowercase() == name.to_lowercase())
+        .ok_or_else(|| "Этот логин не совпадает с профилем на этом компьютере. Чужие записи не открываются.".to_string())
+}
+
+pub fn overwrite_person_name(conn: &Connection, display_name: &str) -> Result<Astronaut, String> {
+    let name = validate_person_name(display_name)?;
+    let person = list_astronauts(conn)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "На этом компьютере ещё нет профиля.".to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    tx.execute(
+        "UPDATE astronauts SET display_name = ?1, updated_at_utc = ?2 WHERE astronaut_id = ?3",
+        params![name, utc_now(), person.astronaut_id],
+    )
+    .map_err(|error| error.to_string())?;
+    audit(
+        &tx,
+        "PERSON_RENAMED",
+        "astronaut",
+        &person.astronaut_id,
+        "The login window overwrote the profile name. Health records stay on this profile. The test password is not stored.",
+    )?;
+    tx.commit().map_err(|error| error.to_string())?;
+    load_astronaut(conn, &person.astronaut_id)
+}
+
+pub fn queue_counts(conn: &Connection) -> Result<(i64, i64, i64), String> {
+    let one = |sql: &str| -> Result<i64, String> {
+        conn.query_row(sql, [], |row| row.get(0)).map_err(|error| error.to_string())
+    };
+    let waiting = one("SELECT COUNT(*) FROM sync_queue WHERE status IN ('LOCAL_ONLY', 'PENDING', 'SENDING')")?;
+    let sent = one("SELECT COUNT(*) FROM sync_queue WHERE status = 'SYNCED'")?;
+    let error = one("SELECT COUNT(*) FROM sync_queue WHERE status = 'RETRY_WAIT'")?;
+    Ok((waiting, sent, error))
+}
+
 fn validate_person_name(display_name: &str) -> Result<String, String> {
     let name = display_name.trim();
     if name.is_empty() || name.len() > 80 || !name.chars().any(|ch| ch.is_alphabetic()) {
@@ -1304,6 +1346,47 @@ mod tests {
         let replaced = bind_person(&conn, "Valentina Tereshkova", 32, "CREW").unwrap();
         assert_ne!(replaced.astronaut_id, kept);
         assert_eq!(list_astronauts(&conn).unwrap().len(), 1);
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn mismatched_login_does_not_open_or_erase_the_profile() {
+        let (path, conn) = temp_conn();
+        let person = bind_person(&conn, "Mira Sokolova", 34, "CREW").unwrap();
+        let opened = match_person(&conn, "mira sokolova").unwrap();
+        assert_eq!(opened.astronaut_id, person.astronaut_id);
+        assert!(match_person(&conn, "Other Pilot").is_err());
+        let still = list_astronauts(&conn).unwrap();
+        assert_eq!(still.len(), 1);
+        assert_eq!(still[0].display_name, "Mira Sokolova");
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn login_overwrites_the_profile_name_and_keeps_records() {
+        let (path, conn) = temp_conn();
+        let person = bind_person(&conn, "Mira Sokolova", 34, "CREW").unwrap();
+        add_journal_entry(&conn, &person.astronaut_id, "MOOD", "4").unwrap();
+        let renamed = overwrite_person_name(&conn, "Mr. Owell").unwrap();
+        assert_eq!(renamed.astronaut_id, person.astronaut_id);
+        assert_eq!(renamed.display_name, "Mr. Owell");
+        assert_eq!(renamed.age_years, Some(34));
+        assert_eq!(renamed.role, "CREW");
+        let still = list_astronauts(&conn).unwrap();
+        assert_eq!(still.len(), 1);
+        assert_eq!(still[0].display_name, "Mr. Owell");
+        let journal = list_journal(&conn, &person.astronaut_id).unwrap();
+        assert!(journal.iter().any(|item| item["entry_type"] == "MOOD" && item["value"] == "4"));
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(astronauts)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(!columns.iter().any(|name| name.to_lowercase().contains("password")));
         drop(conn);
         let _ = std::fs::remove_file(path);
     }

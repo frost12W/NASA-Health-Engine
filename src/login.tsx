@@ -1,9 +1,10 @@
 // TEST LOGIN. THE PASSWORD STAYS IN THIS WINDOW AND IS NEVER SENT OR SAVED.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, desktopAvailable } from "./api";
 import type { PersonSession } from "./types";
 
 type LoginField = "name" | "age" | "role" | "password";
+type GateMode = "loading" | "create" | "return";
 
 const HINTS: Record<LoginField, string> = {
   name: "Фамилия и имя, до 80 символов.",
@@ -47,6 +48,7 @@ function honeycombCells() {
 const CELLS = honeycombCells();
 
 export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => void }) {
+  const [mode, setMode] = useState<GateMode>("loading");
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [role, setRole] = useState("");
@@ -54,6 +56,18 @@ export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => vo
   const [errors, setErrors] = useState<Partial<Record<LoginField, string>>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!desktopAvailable()) {
+      setMode("create");
+      return;
+    }
+    void api.astronauts().then((people) => {
+      setMode(people.length > 0 ? "return" : "create");
+    }).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    });
+  }, []);
 
   return (
     <div className="login-gate">
@@ -68,16 +82,17 @@ export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => vo
         autoComplete="off"
         onSubmit={(event) => {
           event.preventDefault();
-          const next = validateLogin(name, age, role, password);
+          const next = mode === "return" ? validateReturn(name, password) : validateLogin(name, age, role, password);
           setErrors(next);
-          if (Object.keys(next).length > 0) return;
+          if (Object.keys(next).length > 0 || mode === "loading") return;
           if (!desktopAvailable()) {
             setError("Окно Health Engine не подключено к локальной базе. Откройте программу на этом компьютере.");
             return;
           }
           setBusy(true);
           setError("");
-          void api.bindPerson(name.trim(), Number(age), role).then((astronaut) => {
+          const open = mode === "return" ? api.overwritePerson(name.trim()) : api.bindPerson(name.trim(), Number(age), role);
+          void open.then((astronaut) => {
             onEnter({
               astronautId: astronaut.astronaut_id,
               crewIdentifier: astronaut.crew_identifier,
@@ -91,39 +106,57 @@ export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => vo
           }).finally(() => setBusy(false));
         }}
       >
-        <p className="login-kicker">Health Engine</p>
+        <p className="login-kicker">Тестовый вход</p>
         <h1>Личный профиль</h1>
-        <p className="muted">Один астронавт на этом компьютере. Пароль проверяется здесь и не сохраняется.</p>
+        <p className="muted">Это прототип Health Engine, не учётная запись NASA. Логин и пароль принадлежат только этой программе. Пароль проверяется здесь и не записывается.</p>
         {error && <p className="error">{error}</p>}
-        <label className={errors.name ? "invalid" : undefined}>
-          Имя
-          <input value={name} autoComplete="off" onChange={(event) => setName(event.target.value)} />
-          <span className={errors.name ? "field-hint bad" : "field-hint"}>{errors.name ?? HINTS.name}</span>
-        </label>
-        <label className={errors.age ? "invalid" : undefined}>
-          Возраст
-          <input value={age} inputMode="numeric" autoComplete="off" onChange={(event) => setAge(event.target.value)} />
-          <span className={errors.age ? "field-hint bad" : "field-hint"}>{errors.age ?? HINTS.age}</span>
-        </label>
-        <label className={errors.role ? "invalid" : undefined}>
-          Роль
-          <select value={role} onChange={(event) => setRole(event.target.value)}>
-            <option value="">Выберите</option>
-            <option value="CREW">CREW</option>
-            <option value="MEDICAL">MEDICAL</option>
-            <option value="ADMIN">ADMIN</option>
-          </select>
-          <span className={errors.role ? "field-hint bad" : "field-hint"}>{errors.role ?? HINTS.role}</span>
-        </label>
-        <label className={errors.password ? "invalid" : undefined}>
-          Персональный пароль
-          <input value={password} type="password" autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
-          <span className={errors.password ? "field-hint bad" : "field-hint"}>{errors.password ?? HINTS.password}</span>
-        </label>
-        <button type="submit" disabled={busy}>Войти</button>
+        {mode === "loading" && <p className="muted">Проверяю, есть ли уже профиль на этом компьютере.</p>}
+        {mode !== "loading" && (
+          <label className={errors.name ? "invalid" : undefined}>
+            {mode === "return" ? "Логин" : "Логин профиля"}
+            <input value={name} autoComplete="off" onChange={(event) => setName(event.target.value)} />
+            <span className={errors.name ? "field-hint bad" : "field-hint"}>{errors.name ?? (mode === "return" ? "Каждый запуск можно ввести другой логин: он заменит имя профиля. Записи проверок остаются." : HINTS.name)}</span>
+          </label>
+        )}
+        {mode === "create" && (
+          <>
+            <label className={errors.age ? "invalid" : undefined}>
+              Возраст
+              <input value={age} inputMode="numeric" autoComplete="off" onChange={(event) => setAge(event.target.value)} />
+              <span className={errors.age ? "field-hint bad" : "field-hint"}>{errors.age ?? HINTS.age}</span>
+            </label>
+            <label className={errors.role ? "invalid" : undefined}>
+              Роль
+              <select value={role} onChange={(event) => setRole(event.target.value)}>
+                <option value="">Выберите</option>
+                <option value="CREW">CREW</option>
+                <option value="MEDICAL">MEDICAL</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+              <span className={errors.role ? "field-hint bad" : "field-hint"}>{errors.role ?? HINTS.role}</span>
+            </label>
+          </>
+        )}
+        {mode !== "loading" && (
+          <label className={errors.password ? "invalid" : undefined}>
+            Тестовый пароль
+            <input value={password} type="password" autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
+            <span className={errors.password ? "field-hint bad" : "field-hint"}>{errors.password ?? HINTS.password}</span>
+          </label>
+        )}
+        <button type="submit" disabled={busy || mode === "loading"}>Войти</button>
       </form>
     </div>
   );
+}
+
+function validateReturn(name: string, password: string): Partial<Record<LoginField, string>> {
+  const errors: Partial<Record<LoginField, string>> = {};
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length > 80 || !/[A-Za-z\u0400-\u04FF]/.test(trimmed)) errors.name = HINTS.name;
+  const passwordError = testPassword(password);
+  if (passwordError) errors.password = passwordError;
+  return errors;
 }
 
 function validateLogin(name: string, age: string, role: string, password: string): Partial<Record<LoginField, string>> {

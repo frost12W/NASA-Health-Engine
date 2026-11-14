@@ -127,8 +127,12 @@ export interface AlertRow {
 
 export interface SyncStatus {
   ground_endpoint_configured: boolean;
+  channel?: string;
   last_acknowledged_at: string | null;
   local_only_count: number;
+  waiting_count?: number;
+  sent_count?: number;
+  error_count?: number;
   note: string;
 }
 
