@@ -25,6 +25,31 @@ DETECT_SECONDS = 0.05
 PREVIEW_WIDTH = 640
 CHECK_SECONDS = 30.0
 
+# A camera can be busy for a moment while another program is releasing it.
+CAMERA_RETRY_ATTEMPTS = 3
+CAMERA_RETRY_DELAY_SECONDS = 0.35
+CAMERA_BACKENDS = (
+    ("CAP_DSHOW", cv2.CAP_DSHOW),
+    ("CAP_MSMF", cv2.CAP_MSMF),
+    ("CAP_ANY", cv2.CAP_ANY),
+)
+
+
+def camera_open_error(index: int) -> str:
+    """Busy, unplugged, and privacy-blocked cameras all fail the same way."""
+    return (
+        f"Camera {index} did not open. It may be used by another program, "
+        "unplugged, or blocked by Windows camera privacy settings."
+    )
+
+
+def camera_frame_error(index: int) -> str:
+    return (
+        f"Camera {index} opened but delivered no frames. "
+        "Close other programs that use the camera and try again."
+    )
+
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -134,19 +159,21 @@ class Engine:
         self.frame_times = []
 
     def _open_backend(self, index: int, request_yuy2: bool):
-        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-        backend = "CAP_DSHOW"
-        if not cap.isOpened():
-            cap.release()
-            cap = cv2.VideoCapture(index, cv2.CAP_MSMF)
-            backend = "CAP_MSMF"
-        if not cap.isOpened():
-            cap.release()
-            cap = cv2.VideoCapture(index)
-            backend = "CAP_ANY"
-        if not cap.isOpened():
-            cap.release()
-            return None, backend
+        """Try every backend, then retry: a busy camera often frees up in a moment."""
+        backend = "CAP_ANY"
+        for attempt in range(CAMERA_RETRY_ATTEMPTS):
+            for name, flags in CAMERA_BACKENDS:
+                cap = cv2.VideoCapture(index, flags)
+                if cap is not None and cap.isOpened():
+                    backend = name
+                    return self._configure(cap, request_yuy2), backend
+                if cap is not None:
+                    cap.release()
+            if attempt + 1 < CAMERA_RETRY_ATTEMPTS:
+                time.sleep(CAMERA_RETRY_DELAY_SECONDS)
+        return None, backend
+
+    def _configure(self, cap, request_yuy2: bool):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         if request_yuy2:
@@ -157,7 +184,7 @@ class Engine:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
             pass
-        return cap, backend
+        return cap
 
     def _read_meta(self, cap, backend: str, index: int, requested_yuy2: bool) -> dict:
         pixel_format = fourcc_to_text(cap.get(cv2.CAP_PROP_FOURCC))
@@ -178,17 +205,17 @@ class Engine:
         self._release()
         cap, backend = self._open_backend(index, True)
         if cap is None:
-            return {"ok": False, "error": f"Camera {index} did not open."}
+            return {"ok": False, "error": camera_open_error(index)}
         ok, frame = cap.read()
         if not ok or frame is None:
             cap.release()
             cap, backend = self._open_backend(index, False)
             if cap is None:
-                return {"ok": False, "error": f"Camera {index} did not open."}
+                return {"ok": False, "error": camera_open_error(index)}
             ok, frame = cap.read()
             if not ok or frame is None:
                 cap.release()
-                return {"ok": False, "error": f"Camera {index} opened but did not deliver a frame."}
+                return {"ok": False, "error": camera_frame_error(index)}
             requested = False
         else:
             requested = True
