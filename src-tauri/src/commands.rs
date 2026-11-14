@@ -39,7 +39,32 @@ pub fn mission_clock(state: State<AppState>) -> Result<clock::MissionClock, Stri
     let conn = db(&state)?;
     let config = db::load_config(&conn)?;
     let (epoch, start, end) = db::clock_parts(&config)?;
-    Ok(clock::describe(Utc::now(), epoch, start, end))
+    Ok(clock::describe(
+        Utc::now(),
+        epoch,
+        start,
+        end,
+        config.met_paused,
+        config.met_frozen_seconds,
+    ))
+}
+
+#[tauri::command]
+pub fn start_mission(state: State<AppState>) -> Result<(), String> {
+    let conn = db(&state)?;
+    db::start_mission(&conn)
+}
+
+#[tauri::command]
+pub fn pause_mission(state: State<AppState>) -> Result<(), String> {
+    let conn = db(&state)?;
+    db::pause_mission(&conn)
+}
+
+#[tauri::command]
+pub fn resume_mission(state: State<AppState>) -> Result<(), String> {
+    let conn = db(&state)?;
+    db::resume_mission(&conn)
 }
 
 #[tauri::command]
@@ -132,12 +157,15 @@ pub fn list_astronauts(state: State<AppState>) -> Result<Vec<db::Astronaut>, Str
 #[tauri::command]
 pub fn create_astronaut(
     state: State<AppState>,
-    crew_identifier: String,
     display_name: String,
+    age_years: i64,
     role: String,
+    systolic: f64,
+    diastolic: f64,
+    pulse: f64,
 ) -> Result<String, String> {
     let conn = db(&state)?;
-    db::create_astronaut(&conn, &crew_identifier, &display_name, &role)
+    db::create_astronaut(&conn, &display_name, age_years, &role, systolic, diastolic, pulse)
 }
 
 #[tauri::command]

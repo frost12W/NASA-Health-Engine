@@ -14,6 +14,7 @@ export interface MissionClock {
   doy_label: string;
   met: string;
   circadian: string;
+  mission_state: "idle" | "running" | "paused" | string;
   clock_sync: string;
   clock_note: string;
 }
@@ -26,6 +27,8 @@ export interface MissionConfig {
   export_format: string;
   low_space_bytes: number;
   rule_set_version: string;
+  met_paused: boolean;
+  met_frozen_seconds: number;
 }
 
 export interface HomeCard {
@@ -39,6 +42,17 @@ export interface HomeCard {
   latest_valid_pulse_at: string | null;
   workflow_state: string;
   task_display_status: string;
+  age_years: number | null;
+  pulse_bpm: number | null;
+  pulse_source: string | null;
+  respiratory_rate: number | null;
+  respiratory_source: string | null;
+  sleep_hours: number | null;
+  sleep_source: string | null;
+  wellbeing: number | null;
+  wellbeing_source: string | null;
+  last_systolic: number | null;
+  last_diastolic: number | null;
 }
 
 export interface TaskView {

@@ -1,6 +1,6 @@
 // LOCAL SQLITE STORE FOR CREW RECORDS ON THIS COMPUTER.
 use crate::clock::{self, parse_epoch, parse_hhmm};
-use chrono::{DateTime, NaiveTime, Utc};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -38,6 +38,8 @@ pub struct MissionConfig {
     pub export_format: String,
     pub low_space_bytes: i64,
     pub rule_set_version: String,
+    pub met_paused: bool,
+    pub met_frozen_seconds: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +54,17 @@ pub struct HomeCard {
     pub latest_valid_pulse_at: Option<String>,
     pub workflow_state: String,
     pub task_display_status: String,
+    pub age_years: Option<i64>,
+    pub pulse_bpm: Option<f64>,
+    pub pulse_source: Option<String>,
+    pub respiratory_rate: Option<f64>,
+    pub respiratory_source: Option<String>,
+    pub sleep_hours: Option<f64>,
+    pub sleep_source: Option<String>,
+    pub wellbeing: Option<f64>,
+    pub wellbeing_source: Option<String>,
+    pub last_systolic: Option<f64>,
+    pub last_diastolic: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -115,10 +128,16 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         );",
     )
     .map_err(|error| error.to_string())?;
+    apply_migration(conn, 1, include_str!("../migrations/001_initial.sql"))?;
+    apply_migration(conn, 2, include_str!("../migrations/002_profile_and_mission_clock.sql"))?;
+    Ok(())
+}
+
+fn apply_migration(conn: &Connection, version: i64, sql: &str) -> Result<(), String> {
     let applied: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM schema_migrations WHERE version = 1",
-            [],
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = ?1",
+            [version],
             |row| row.get(0),
         )
         .map_err(|error| error.to_string())?;
@@ -126,11 +145,10 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         return Ok(());
     }
     let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
-    tx.execute_batch(include_str!("../migrations/001_initial.sql"))
-        .map_err(|error| error.to_string())?;
+    tx.execute_batch(sql).map_err(|error| error.to_string())?;
     tx.execute(
-        "INSERT INTO schema_migrations (version, applied_at_utc) VALUES (1, ?1)",
-        [utc_now()],
+        "INSERT INTO schema_migrations (version, applied_at_utc) VALUES (?1, ?2)",
+        params![version, utc_now()],
     )
     .map_err(|error| error.to_string())?;
     tx.commit().map_err(|error| error.to_string())?;
@@ -139,10 +157,11 @@ fn migrate(conn: &Connection) -> Result<(), String> {
 
 pub fn load_config(conn: &Connection) -> Result<MissionConfig, String> {
     conn.query_row(
-        "SELECT mission_epoch_utc, circadian_start_utc, circadian_end_utc, reminder_cadence, export_format, low_space_bytes, rule_set_version
+        "SELECT mission_epoch_utc, circadian_start_utc, circadian_end_utc, reminder_cadence, export_format, low_space_bytes, rule_set_version, met_paused, met_frozen_seconds
          FROM mission_configuration WHERE config_id = 1",
         [],
         |row| {
+            let paused: i64 = row.get(7)?;
             Ok(MissionConfig {
                 mission_epoch_utc: row.get(0)?,
                 circadian_start_utc: row.get(1)?,
@@ -151,6 +170,8 @@ pub fn load_config(conn: &Connection) -> Result<MissionConfig, String> {
                 export_format: row.get(4)?,
                 low_space_bytes: row.get(5)?,
                 rule_set_version: row.get(6)?,
+                met_paused: paused != 0,
+                met_frozen_seconds: row.get(8)?,
             })
         },
     )
@@ -205,7 +226,7 @@ pub fn set_config(
     conn.execute(
         "UPDATE mission_configuration
          SET mission_epoch_utc = ?1, circadian_start_utc = ?2, circadian_end_utc = ?3,
-             export_format = ?4, updated_at_utc = ?5
+             export_format = ?4, updated_at_utc = ?5, met_paused = 0, met_frozen_seconds = 0
          WHERE config_id = 1",
         params![
             epoch_value,
@@ -220,35 +241,124 @@ pub fn set_config(
     Ok(())
 }
 
-pub fn create_astronaut(conn: &Connection, crew_identifier: &str, display_name: &str, role: &str) -> Result<String, String> {
-    let identifier = crew_identifier.trim();
-    if identifier.len() < 1 || identifier.len() > 32 || !identifier.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-') {
-        return Err("Use 1 to 32 letters, numbers, or dashes for the crew identifier.".into());
-    }
+pub fn create_astronaut(
+    conn: &Connection,
+    display_name: &str,
+    age_years: i64,
+    role: &str,
+    systolic: f64,
+    diastolic: f64,
+    pulse: f64,
+) -> Result<String, String> {
     let name = display_name.trim();
-    if name.is_empty() || name.len() > 80 {
-        return Err("Enter a display name of 1 to 80 characters.".into());
+    if name.is_empty() || name.len() > 80 || !name.chars().any(|ch| ch.is_alphabetic()) {
+        return Err("Enter a family name and a given name, up to 80 characters.".into());
+    }
+    if !(18..=99).contains(&age_years) {
+        return Err("Age is whole years from 18 to 99. This is an entry bound, not a health category.".into());
+    }
+    if !(40.0..=300.0).contains(&systolic) || !(20.0..=200.0).contains(&diastolic) || systolic <= diastolic {
+        return Err("Blood pressure needs two numbers inside the entry bounds, with the first number higher.".into());
+    }
+    if pulse.fract() != 0.0 || !(30.0..=220.0).contains(&pulse) {
+        return Err("Pulse is a whole number from 30 to 220 bpm. This is an entry bound, not a health category.".into());
     }
     let stored_role = match role.trim().to_uppercase().as_str() {
         "MEDICAL" => "MEDICAL",
         "ADMIN" => "ADMIN",
-        _ => "CREW",
+        "CREW" => "CREW",
+        _ => return Err("Role is CREW, MEDICAL, or ADMIN.".into()),
     };
     let id = Uuid::new_v4().to_string();
+    let identifier = next_crew_identifier(conn)?;
     let now = utc_now();
-    let inserted = conn.execute(
-        "INSERT INTO astronauts (astronaut_id, crew_identifier, display_name, role, profile_status, created_at_utc, updated_at_utc)
-         VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?5)",
-        params![id, identifier, name, stored_role, now],
-    );
-    match inserted {
-        Ok(_) => {
-            audit(conn, "ASTRONAUT_CREATED", "astronaut", &id, identifier)?;
-            Ok(id)
+    let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT INTO astronauts (astronaut_id, crew_identifier, display_name, role, profile_status, age_years, created_at_utc, updated_at_utc)
+         VALUES (?1, ?2, ?3, ?4, 'ACTIVE', ?5, ?6, ?6)",
+        params![id, identifier, name, stored_role, age_years, now],
+    )
+    .map_err(|error| error.to_string())?;
+    insert_manual_metric(&tx, &id, "BLOOD_PRESSURE_SYSTOLIC", systolic, "mmHg")?;
+    insert_manual_metric(&tx, &id, "BLOOD_PRESSURE_DIASTOLIC", diastolic, "mmHg")?;
+    insert_manual_metric(&tx, &id, "PULSE_RATE", pulse, "bpm")?;
+    audit(&tx, "ASTRONAUT_CREATED", "astronaut", &id, &identifier)?;
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok(id)
+}
+
+fn next_crew_identifier(conn: &Connection) -> Result<String, String> {
+    for _ in 0..8 {
+        let token = Uuid::new_v4().simple().to_string();
+        let identifier = format!("CREW-{}", token[..4].to_uppercase());
+        let taken: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM astronauts WHERE crew_identifier = ?1",
+                [&identifier],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if taken == 0 {
+            return Ok(identifier);
         }
-        Err(error) if error.to_string().contains("UNIQUE") => Err("That crew identifier is already in use.".into()),
-        Err(error) => Err(error.to_string()),
     }
+    Err("A crew identifier could not be assigned.".into())
+}
+
+pub fn start_mission(conn: &Connection) -> Result<(), String> {
+    let config = load_config(conn)?;
+    if config.mission_epoch_utc.as_ref().is_some_and(|value| !value.is_empty()) {
+        if config.met_paused {
+            return Err("The mission clock is paused. Resume it instead of starting a new one.".into());
+        }
+        return Err("The mission clock is already running.".into());
+    }
+    conn.execute(
+        "UPDATE mission_configuration
+         SET mission_epoch_utc = ?1, met_paused = 0, met_frozen_seconds = 0, updated_at_utc = ?1
+         WHERE config_id = 1",
+        [utc_now()],
+    )
+    .map_err(|error| error.to_string())?;
+    audit(conn, "MISSION_STARTED", "mission_configuration", "1", "Mission elapsed time started.")?;
+    Ok(())
+}
+
+pub fn pause_mission(conn: &Connection) -> Result<(), String> {
+    let config = load_config(conn)?;
+    if config.met_paused {
+        return Ok(());
+    }
+    let (epoch, _, _) = clock_parts(&config)?;
+    let epoch = epoch.ok_or_else(|| "Start the mission clock before pausing it.".to_string())?;
+    let frozen = Utc::now().signed_duration_since(epoch).num_seconds().max(0);
+    conn.execute(
+        "UPDATE mission_configuration
+         SET met_paused = 1, met_frozen_seconds = ?1, updated_at_utc = ?2
+         WHERE config_id = 1",
+        params![frozen, utc_now()],
+    )
+    .map_err(|error| error.to_string())?;
+    audit(conn, "MISSION_PAUSED", "mission_configuration", "1", "Mission elapsed time frozen.")?;
+    Ok(())
+}
+
+pub fn resume_mission(conn: &Connection) -> Result<(), String> {
+    let config = load_config(conn)?;
+    if !config.met_paused {
+        return Err("The mission clock is not paused.".into());
+    }
+    let resumed = Utc::now() - Duration::seconds(config.met_frozen_seconds.max(0));
+    let epoch = resumed.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    conn.execute(
+        "UPDATE mission_configuration
+         SET mission_epoch_utc = ?1, met_paused = 0, met_frozen_seconds = 0, updated_at_utc = ?2
+         WHERE config_id = 1",
+        params![epoch, utc_now()],
+    )
+    .map_err(|error| error.to_string())?;
+    audit(conn, "MISSION_RESUMED", "mission_configuration", "1", "Mission elapsed time resumed.")?;
+    Ok(())
 }
 
 pub fn list_astronauts(conn: &Connection) -> Result<Vec<Astronaut>, String> {
@@ -328,8 +438,58 @@ pub fn list_tasks(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<TaskView>
     rows.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())
 }
 
+fn latest_metric(conn: &Connection, astronaut_id: &str, metric_type: &str) -> Option<(f64, String, String)> {
+    conn.query_row(
+        "SELECT value, measured_at_utc, source_type FROM metric_records
+         WHERE astronaut_id = ?1 AND metric_type = ?2 AND value IS NOT NULL
+         ORDER BY measured_at_utc DESC LIMIT 1",
+        params![astronaut_id, metric_type],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .ok()
+}
+
+fn insert_sample(conn: &Connection, astronaut_id: &str, metric_type: &str, value: f64, unit: &str) -> Result<(), String> {
+    let metric_id = Uuid::new_v4().to_string();
+    let note = json!({
+        "note": "Sample profile value so the home card can show a number. A newer record replaces it.",
+        "sample": true
+    });
+    conn.execute(
+        "INSERT INTO metric_records (
+            metric_id, session_id, astronaut_id, metric_type, value, unit, source_type, validity_status,
+            quality_score, quality_metadata_json, method_name, method_version, measured_at_utc, created_at_utc
+         ) VALUES (?1, NULL, ?2, ?3, ?4, ?5, 'SIMULATED', 'VALID', NULL, ?6, 'SAMPLE_PROFILE', 'sample-profile-v1', '2026-01-01T00:00:00Z', ?7)",
+        params![metric_id, astronaut_id, metric_type, value, unit, note.to_string(), utc_now()],
+    )
+    .map_err(|error| error.to_string())?;
+    queue_local(conn, "metric_record", &metric_id)?;
+    Ok(())
+}
+
+fn seed_display_samples(conn: &Connection) -> Result<(), String> {
+    for astronaut in list_astronauts(conn)? {
+        let index = astronaut.astronaut_id.bytes().fold(0usize, |total, byte| total.wrapping_add(byte as usize)) % 3;
+        let rows = [
+            ("RESPIRATORY_RATE", [12.0, 15.0, 16.0][index], "breaths/min"),
+            ("SLEEP_HOURS", [6.5, 7.2, 8.0][index], "h"),
+            ("MOOD_SCORE", [3.0, 4.0, 5.0][index], "1-5"),
+        ];
+        for (metric_type, value, unit) in rows {
+            if latest_metric(conn, &astronaut.astronaut_id, metric_type).is_none() {
+                insert_sample(conn, &astronaut.astronaut_id, metric_type, value, unit)?;
+            }
+        }
+        if latest_metric(conn, &astronaut.astronaut_id, "PULSE_RATE").is_none() {
+            insert_sample(conn, &astronaut.astronaut_id, "PULSE_RATE", [68.0, 74.0, 81.0][index], "bpm")?;
+        }
+    }
+    Ok(())
+}
+
 pub fn home_cards(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<HomeCard>, String> {
     ensure_daily_tasks(conn, now)?;
+    seed_display_samples(conn)?;
     let astronauts = list_astronauts(conn)?;
     let mut cards = Vec::new();
     for astronaut in astronauts {
@@ -352,6 +512,20 @@ pub fn home_cards(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<HomeCard>
             )
             .ok();
         let has_valid_pulse = latest_valid.is_some();
+        let age_years: Option<i64> = conn
+            .query_row(
+                "SELECT age_years FROM astronauts WHERE astronaut_id = ?1",
+                [&astronaut.astronaut_id],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        let pulse = latest_metric(conn, &astronaut.astronaut_id, "PULSE_RATE");
+        let breath = latest_metric(conn, &astronaut.astronaut_id, "RESPIRATORY_RATE");
+        let sleep = latest_metric(conn, &astronaut.astronaut_id, "SLEEP_HOURS");
+        let mood = latest_metric(conn, &astronaut.astronaut_id, "MOOD_SCORE");
+        let systolic = latest_metric(conn, &astronaut.astronaut_id, "BLOOD_PRESSURE_SYSTOLIC");
+        let diastolic = latest_metric(conn, &astronaut.astronaut_id, "BLOOD_PRESSURE_DIASTOLIC");
         let day = clock::today_utc(now);
         let task_status: String = conn
             .query_row(
@@ -379,6 +553,17 @@ pub fn home_cards(conn: &Connection, now: DateTime<Utc>) -> Result<Vec<HomeCard>
                 "INSUFFICIENT DATA".to_string()
             },
             task_display_status: task_status,
+            age_years,
+            pulse_bpm: pulse.as_ref().map(|item| item.0),
+            pulse_source: pulse.map(|item| item.2),
+            respiratory_rate: breath.as_ref().map(|item| item.0),
+            respiratory_source: breath.map(|item| item.2),
+            sleep_hours: sleep.as_ref().map(|item| item.0),
+            sleep_source: sleep.map(|item| item.2),
+            wellbeing: mood.as_ref().map(|item| item.0),
+            wellbeing_source: mood.map(|item| item.2),
+            last_systolic: systolic.map(|item| item.0),
+            last_diastolic: diastolic.map(|item| item.0),
         });
     }
     Ok(cards)
@@ -944,7 +1129,7 @@ mod tests {
     #[test]
     fn valid_pulse_round_trips_and_inconclusive_cannot_keep_a_number() {
         let (path, conn) = temp_conn();
-        let astronaut = create_astronaut(&conn, "CDR-1", "Crew One", "CREW").unwrap();
+        let astronaut = create_astronaut(&conn, "Crew One", 34, "CREW", 120.0, 80.0, 70.0).unwrap();
         let valid = json!({
             "astronaut_id": astronaut,
             "session_id": Uuid::new_v4().to_string(),
@@ -965,9 +1150,9 @@ mod tests {
         drop(conn);
         let reopened = open_at(&path).unwrap();
         let metrics = list_metrics(&reopened, &astronaut).unwrap();
-        assert_eq!(metrics.len(), 1);
-        assert_eq!(metrics[0]["value"].as_f64(), Some(72.0));
-        assert_eq!(metrics[0]["validity_status"], "VALID");
+        let camera = metrics.iter().find(|item| item["method_name"] == "POS").unwrap();
+        assert_eq!(camera["value"].as_f64(), Some(72.0));
+        assert_eq!(camera["validity_status"], "VALID");
         let inconclusive = json!({
             "astronaut_id": astronaut,
             "session_id": Uuid::new_v4().to_string(),

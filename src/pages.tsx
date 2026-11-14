@@ -1,14 +1,28 @@
 // CREW PAGES FOR CHECKS, RECORDS, TASKS, HELP, AND SETTINGS.
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import profileMark from "./assets/profile-mark.png";
 import { api, desktopAvailable } from "./api";
 import type { Astronaut, HomeCard, JournalRow, MetricRow, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
 
+type CrewField = "name" | "age" | "role" | "pressure" | "pulse";
+
+const CREW_HINTS: Record<CrewField, string> = {
+  name: "Family name and given name.",
+  age: "Whole years, 18–99.",
+  role: "CREW, MEDICAL, or ADMIN.",
+  pressure: "Two numbers, higher first, such as 120/80.",
+  pulse: "Whole number, 30–220 bpm. An entry bound, not a grade.",
+};
+
 export function HomePage({ sync, onChanged }: { sync: SyncStatus | null; onChanged: () => Promise<void> }) {
   const [cards, setCards] = useState<HomeCard[]>([]);
-  const [identifier, setIdentifier] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState("CREW");
+  const [age, setAge] = useState("");
+  const [role, setRole] = useState("");
+  const [pressure, setPressure] = useState("");
+  const [pulse, setPulse] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<CrewField, string>>>({});
   const [error, setError] = useState("");
 
   async function load() {
@@ -18,23 +32,35 @@ export function HomePage({ sync, onChanged }: { sync: SyncStatus | null; onChang
 
   useEffect(() => {
     void load().catch((reason: unknown) => setError(String(reason)));
+    const timer = window.setInterval(() => {
+      void load().catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(timer);
   }, []);
 
   return (
     <section>
-      <h1>Crew overview</h1>
       <p className="muted">Health checks are recorded when someone completes them. Nothing on this screen is a diagnosis.</p>
       {error && <p className="error">{error}</p>}
       <div className="grid">
         {cards.map((card) => (
-          <article className="panel" key={card.astronaut_id}>
-            <h2>{card.display_name}</h2>
-            <p className="mono">{card.crew_identifier} · {card.role}</p>
+          <article className="panel crew-card" key={card.astronaut_id}>
+            <div className="profile">
+              <img className="profile-mark" src={profileMark} alt="" />
+              <p className="profile-age">{card.age_years ?? "—"}</p>
+              <h2>{card.display_name}</h2>
+              <p className="profile-role">{card.role}</p>
+            </div>
             <p><span className={card.workflow_state === "CHECK RECORDED" ? "status done" : "status"}>{card.workflow_state}</span></p>
-            <p>Latest valid pulse: {card.latest_valid_pulse_bpm ?? "—"} {card.latest_valid_pulse_bpm != null ? "bpm" : ""}</p>
-            <p className="muted">Valid at {card.latest_valid_pulse_at ?? "no valid camera pulse yet"}</p>
-            <p>Latest attempt: {card.latest_attempt_validity ?? "none"} at {card.latest_attempt_at ?? "—"}</p>
+            <div className="vitals">
+              <Vital kind="pulse" label="Pulse" value={card.pulse_bpm} unit="bpm" source={card.pulse_source} />
+              <Vital kind="breath" label="Breaths" value={card.respiratory_rate} unit="/min" source={card.respiratory_source} />
+              <Vital kind="sleep" label="Sleep" value={card.sleep_hours} unit="h" source={card.sleep_source} />
+              <Vital kind="mood" label="Wellbeing" value={card.wellbeing} unit="/ 5" source={card.wellbeing_source} />
+            </div>
+            <p className="muted">Last pressure {card.last_systolic ?? "—"}/{card.last_diastolic ?? "—"}</p>
             <p>Today's check: <span className={taskClass(card.task_display_status)}>{card.task_display_status}</span></p>
+            <p className="crew-id">CREW ID {card.crew_identifier}</p>
           </article>
         ))}
         {cards.length === 0 && <article className="panel">No crew members are configured on this computer.</article>}
@@ -46,30 +72,135 @@ export function HomePage({ sync, onChanged }: { sync: SyncStatus | null; onChang
         <p className="muted">Last acknowledgement: {sync?.last_acknowledged_at ?? "none"}</p>
       </section>
       <form
-        className="row"
-        style={{ marginTop: "0.8rem" }}
+        className="crew-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void api.createAstronaut(identifier, name, role).then(() => {
-            setIdentifier("");
+          const nextErrors = validateCrew(name, age, role, pressure, pulse);
+          setFieldErrors(nextErrors);
+          if (Object.keys(nextErrors).length > 0) return;
+          const [systolic, diastolic] = pressure.split("/").map((part) => Number(part.trim()));
+          void api.createAstronaut(name.trim(), Number(age), role, systolic, diastolic, Number(pulse)).then(() => {
             setName("");
+            setAge("");
+            setPressure("");
+            setPulse("");
+            setFieldErrors({});
             return load();
           }).then(onChanged).catch((reason: unknown) => setError(String(reason)));
         }}
       >
-        <label>Crew identifier<input value={identifier} onChange={(event) => setIdentifier(event.target.value)} /></label>
-        <label>Display name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label>Role label
+        <CrewField label="Full name" hint={CREW_HINTS.name} error={fieldErrors.name}>
+          <input value={name} onChange={(event) => setName(event.target.value)} />
+        </CrewField>
+        <CrewField label="Age" hint={CREW_HINTS.age} error={fieldErrors.age}>
+          <input value={age} inputMode="numeric" onChange={(event) => setAge(event.target.value)} />
+        </CrewField>
+        <CrewField label="Role" hint={CREW_HINTS.role} error={fieldErrors.role}>
           <select value={role} onChange={(event) => setRole(event.target.value)}>
+            <option value="">Select</option>
             <option>CREW</option>
             <option>MEDICAL</option>
             <option>ADMIN</option>
           </select>
-        </label>
+        </CrewField>
+        <CrewField label="Last blood pressure" hint={CREW_HINTS.pressure} error={fieldErrors.pressure}>
+          <input value={pressure} placeholder="120/80" onChange={(event) => setPressure(event.target.value)} />
+        </CrewField>
+        <CrewField label="Last pulse" hint={CREW_HINTS.pulse} error={fieldErrors.pulse}>
+          <input value={pulse} inputMode="numeric" onChange={(event) => setPulse(event.target.value)} />
+        </CrewField>
         <button type="submit">Add crew member</button>
       </form>
-      <p className="muted">Role labels are stored for later. This version has no separate logins, so anyone at this computer can open the local records.</p>
     </section>
+  );
+}
+
+function validateCrew(name: string, age: string, role: string, pressure: string, pulse: string): Partial<Record<CrewField, string>> {
+  const errors: Partial<Record<CrewField, string>> = {};
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length > 80 || !/[A-Za-z\u0400-\u04FF]/.test(trimmed)) errors.name = CREW_HINTS.name;
+  const years = Number(age);
+  if (!Number.isInteger(years) || years < 18 || years > 99) errors.age = CREW_HINTS.age;
+  if (role !== "CREW" && role !== "MEDICAL" && role !== "ADMIN") errors.role = CREW_HINTS.role;
+  const parts = pressure.split("/");
+  const systolic = Number(parts[0]?.trim());
+  const diastolic = Number(parts[1]?.trim());
+  if (parts.length !== 2 || !(systolic >= 40 && systolic <= 300) || !(diastolic >= 20 && diastolic <= 200) || systolic <= diastolic) {
+    errors.pressure = CREW_HINTS.pressure;
+  }
+  const bpm = Number(pulse);
+  if (!Number.isInteger(bpm) || bpm < 30 || bpm > 220) errors.pulse = CREW_HINTS.pulse;
+  return errors;
+}
+
+function CrewField({ label, hint, error, children }: { label: string; hint: string; error?: string; children: ReactNode }) {
+  return (
+    <label className={error ? "invalid" : undefined}>
+      {label}
+      {children}
+      <span className={error ? "field-hint bad" : "field-hint"}>{error ?? hint}</span>
+    </label>
+  );
+}
+
+function Vital({ kind, label, value, unit, source }: { kind: "pulse" | "breath" | "sleep" | "mood"; label: string; value: number | null; unit: string; source: string | null }) {
+  const origin = source === "CAMERA_DERIVED" ? "camera" : source === "SELF_REPORTED" ? "entered" : source === "SIMULATED" ? "sample" : "";
+  const pace = kind === "pulse"
+    ? 60 / Math.max(value ?? 60, 30)
+    : kind === "breath"
+      ? 60 / Math.max(value ?? 14, 6)
+      : 3.2;
+  return (
+    <div className="vital">
+      <span>{label}</span>
+      <strong>{value ?? "—"} <small>{unit}</small></strong>
+      <LiveDiagram kind={kind} value={value} pace={pace} />
+      {origin && <em>{origin}</em>}
+    </div>
+  );
+}
+
+function LiveDiagram({ kind, value, pace }: { kind: "pulse" | "breath" | "sleep" | "mood"; value: number | null; pace: number }) {
+  if (kind === "sleep") {
+    const hours = value == null ? 0 : Math.max(0, Math.min(24, value));
+    const sweep = (hours / 24) * 100;
+    return (
+      <svg className="diagram gauge" viewBox="0 0 36 36" aria-hidden="true">
+        <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(197,208,220,0.25)" strokeWidth="3" />
+        <circle cx="18" cy="18" r="14" fill="none" stroke="#3ec6ff" strokeWidth="3" strokeDasharray={`${sweep} 100`} strokeLinecap="round" transform="rotate(-90 18 18)" pathLength="100" />
+        {value != null && (
+          <g>
+            <animateTransform attributeName="transform" type="rotate" from="0 18 18" to="360 18 18" dur="4s" repeatCount="indefinite" />
+            <circle cx="18" cy="4" r="1.4" fill="#e6c84a" />
+          </g>
+        )}
+      </svg>
+    );
+  }
+  if (kind === "mood") {
+    const score = value == null ? 0 : Math.max(0, Math.min(5, Math.round(value)));
+    return (
+      <svg className="diagram bars" viewBox="0 0 120 36" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((index) => (
+          <rect key={index} x={8 + index * 22} y={30 - (index + 1) * 5} width="14" height={(index + 1) * 5} className={index < score ? "bar live" : "bar"} style={index < score ? { animationDelay: `${index * 0.12}s` } : undefined} />
+        ))}
+      </svg>
+    );
+  }
+  if (value == null) {
+    return (
+      <svg className="diagram" viewBox="0 0 96 36" aria-hidden="true">
+        <line x1="0" y1="18" x2="96" y2="18" stroke="rgba(197,208,220,0.35)" strokeWidth="1.4" />
+      </svg>
+    );
+  }
+  const points = kind === "pulse"
+    ? "0,18 10,18 14,18 18,4 22,32 26,12 30,18 48,18 58,18 62,4 66,32 70,12 74,18 96,18"
+    : "0,18 8,8 16,28 24,8 32,28 40,8 48,28 56,8 64,28 72,8 80,28 88,8 96,18";
+  return (
+    <svg className="diagram wave" viewBox="0 0 96 36" aria-hidden="true">
+      <polyline className="trace" points={points} fill="none" stroke="#3ec6ff" strokeWidth="1.6" style={{ animationDuration: `${pace}s` }} />
+    </svg>
   );
 }
 
@@ -164,7 +295,6 @@ export function HealthCheckPage() {
 
   return (
     <section>
-      <h1>Проверка по лицу</h1>
       <p>
         Это 30-секундная диагностика. Камера оценивает пульс по изменению цвета кожи. Это не диагноз.
         Видео в файл не пишется. В базу попадает только итог.
@@ -317,6 +447,7 @@ export function DetailPage() {
   const [systolic, setSystolic] = useState("");
   const [diastolic, setDiastolic] = useState("");
   const [temperature, setTemperature] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<DetailField, string>>>({});
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -338,67 +469,111 @@ export function DetailPage() {
 
   const pulse = metrics.filter((metric) => metric.metric_type === "PULSE_RATE" && metric.source_type === "CAMERA_DERIVED" && metric.validity_status === "VALID" && metric.value != null);
 
+  const cameraRows = metrics.filter((metric) => metric.metric_type === "PULSE_RATE" && metric.source_type === "CAMERA_DERIVED");
+  const manualRows = metrics.filter((metric) => metric.source_type === "SELF_REPORTED");
+  const journalDays = dayCompleteness(journal);
+  const logRows = [
+    ...journal.map((entry) => ({
+      id: entry.entry_id,
+      at: entry.recorded_at_utc,
+      kind: entry.entry_type,
+      value: `${entry.value} ${entry.unit_or_scale ?? ""}`.trim(),
+      source: entry.source_type,
+      tone: journalDays.get(entry.recorded_at_utc.slice(0, 10)) ?? "mid" as RecordTone,
+    })),
+    ...manualRows.map((metric) => ({
+      id: metric.metric_id,
+      at: metric.measured_at_utc,
+      kind: metric.metric_type,
+      value: `${metric.value ?? "—"} ${metric.unit}`,
+      source: metric.source_type,
+      tone: (metric.validity_status === "VALID" ? "good" : "bad") as RecordTone,
+    })),
+  ].sort((left, right) => right.at.localeCompare(left.at));
+
   return (
-    <section>
-      <h1>Detail monitoring</h1>
+    <section className="detail-page">
       {error && <p className="error">{error}</p>}
-      <label>Crew member
-        <select value={astronautId} onChange={(event) => setAstronautId(event.target.value)}>
-          {crew.map((person) => <option key={person.astronaut_id} value={person.astronaut_id}>{person.display_name}</option>)}
-        </select>
-      </label>
-      <h2>Valid camera pulse</h2>
-      {pulse.length === 0 ? <p>No valid measurements recorded yet.</p> : <PulseChart points={pulse} />}
-      <table>
-        <thead><tr><th>Time (UTC)</th><th>Type</th><th>Value</th><th>Source</th><th>Validity</th></tr></thead>
-        <tbody>
-          {metrics.map((metric) => (
-            <tr key={metric.metric_id}>
-              <td className="mono">{metric.measured_at_utc}</td>
-              <td>{metric.metric_type}</td>
-              <td className="mono">{metric.value ?? "—"} {metric.unit}</td>
-              <td>{metric.source_type}</td>
-              <td>{metric.validity_status}</td>
-            </tr>
+      <section className="panel crew-picker">
+        <label>Crew member
+          <select value={astronautId} onChange={(event) => setAstronautId(event.target.value)}>
+            {crew.map((person) => <option key={person.astronaut_id} value={person.astronaut_id}>{person.display_name}</option>)}
+          </select>
+        </label>
+      </section>
+      <section className="panel detail-block">
+        <h2>Valid camera pulse</h2>
+        {pulse.length === 0 ? <p>No valid measurements recorded yet.</p> : <PulseChart points={pulse} />}
+        <table>
+          <thead><tr><th>Time (UTC)</th><th>Value</th><th>Validity</th></tr></thead>
+          <tbody>
+            {cameraRows.map((metric) => {
+              const tone = cameraTone(metric);
+              return (
+                <tr className={`tone-row ${tone}`} key={metric.metric_id}>
+                  <td><DateMark icon="camera" tone={tone} text={metric.measured_at_utc} /></td>
+                  <td className="mono">{metric.value ?? "—"} {metric.unit}</td>
+                  <td>{metric.validity_status}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="muted">Green means a saved usable camera record. Yellow means the attempt was saved without a number. Red means the record cannot be used. This is not a diagnosis.</p>
+      </section>
+      <section className="panel detail-block">
+        <h2>Journal and manual entries</h2>
+        <p className="muted">Sleep, mood, and symptoms are self-reported. Blood pressure and temperature are typed by the crew. The camera does not measure them.</p>
+        <form
+          className="journal-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const nextErrors = validateDetail(sleep, mood, systolic, diastolic, temperature, selectedSymptoms.length > 0);
+            setFieldErrors(nextErrors);
+            if (Object.keys(nextErrors).length > 0) return;
+            void saveJournal().catch((reason: unknown) => setError(String(reason)));
+          }}
+        >
+          <CrewField label="Sleep hours" hint={DETAIL_HINTS.sleep} error={fieldErrors.sleep}>
+            <input value={sleep} onChange={(event) => setSleep(event.target.value)} />
+          </CrewField>
+          <CrewField label="Mood 1–5" hint={DETAIL_HINTS.mood} error={fieldErrors.mood}>
+            <input value={mood} onChange={(event) => setMood(event.target.value)} />
+          </CrewField>
+          <CrewField label="Systolic" hint={DETAIL_HINTS.systolic} error={fieldErrors.systolic}>
+            <input value={systolic} onChange={(event) => setSystolic(event.target.value)} />
+          </CrewField>
+          <CrewField label="Diastolic" hint={DETAIL_HINTS.diastolic} error={fieldErrors.diastolic}>
+            <input value={diastolic} onChange={(event) => setDiastolic(event.target.value)} />
+          </CrewField>
+          <CrewField label="Temperature °C" hint={DETAIL_HINTS.temperature} error={fieldErrors.temperature}>
+            <input value={temperature} onChange={(event) => setTemperature(event.target.value)} />
+          </CrewField>
+          <button type="submit">Save entries</button>
+          {fieldErrors.form && <p className="error">{fieldErrors.form}</p>}
+        </form>
+        <div className="row">
+          {symptoms.map((symptom) => (
+            <label key={symptom.id}>
+              <span><input type="checkbox" checked={selectedSymptoms.includes(symptom.id)} onChange={() => setSelectedSymptoms((current) => current.includes(symptom.id) ? current.filter((id) => id !== symptom.id) : [...current, symptom.id])} /> {symptom.label}</span>
+            </label>
           ))}
-        </tbody>
-      </table>
-      <h2>Journal and manual entries</h2>
-      <p className="muted">Sleep, mood, and symptoms are self-reported. Blood pressure and temperature are typed by the crew. The camera does not measure them.</p>
-      <form
-        className="row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void saveJournal().catch((reason: unknown) => setError(String(reason)));
-        }}
-      >
-        <label>Sleep hours<input value={sleep} onChange={(event) => setSleep(event.target.value)} /></label>
-        <label>Mood 1–5<input value={mood} onChange={(event) => setMood(event.target.value)} /></label>
-        <label>Systolic<input value={systolic} onChange={(event) => setSystolic(event.target.value)} /></label>
-        <label>Diastolic<input value={diastolic} onChange={(event) => setDiastolic(event.target.value)} /></label>
-        <label>Temperature °C<input value={temperature} onChange={(event) => setTemperature(event.target.value)} /></label>
-        <button type="submit">Save entries</button>
-      </form>
-      <div className="row">
-        {symptoms.map((symptom) => (
-          <label key={symptom.id}>
-            <span><input type="checkbox" checked={selectedSymptoms.includes(symptom.id)} onChange={() => setSelectedSymptoms((current) => current.includes(symptom.id) ? current.filter((id) => id !== symptom.id) : [...current, symptom.id])} /> {symptom.label}</span>
-          </label>
-        ))}
-      </div>
-      <table>
-        <thead><tr><th>Time (UTC)</th><th>Entry</th><th>Value</th><th>Source</th></tr></thead>
-        <tbody>
-          {journal.map((entry) => (
-            <tr key={entry.entry_id}>
-              <td className="mono">{entry.recorded_at_utc}</td>
-              <td>{entry.entry_type}</td>
-              <td>{entry.value} {entry.unit_or_scale ?? ""}</td>
-              <td>{entry.source_type}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        </div>
+        <table>
+          <thead><tr><th>Time (UTC)</th><th>Entry</th><th>Value</th><th>Source</th></tr></thead>
+          <tbody>
+            {logRows.map((row) => (
+              <tr className={`tone-row ${row.tone}`} key={row.id}>
+                <td><DateMark icon="journal" tone={row.tone} text={row.at} /></td>
+                <td>{row.kind}</td>
+                <td>{row.value}</td>
+                <td>{row.source}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="muted">Green means that UTC day has both sleep and mood saved. Yellow means the day is only partly filled. Red means a saved manual value is not usable. This is not a diagnosis.</p>
+      </section>
     </section>
   );
 
@@ -408,18 +583,102 @@ export function DetailPage() {
     if (mood) await api.addJournal(astronautId, "MOOD", mood);
     for (const symptom of selectedSymptoms) await api.addJournal(astronautId, "SYMPTOM", symptom);
     if (systolic || diastolic || temperature) await api.addManual(astronautId, systolic, diastolic, temperature);
-    if (!sleep && !mood && selectedSymptoms.length === 0 && !systolic && !diastolic && !temperature) {
-      throw new Error("Enter at least one journal item.");
-    }
     setSleep("");
     setMood("");
     setSystolic("");
     setDiastolic("");
     setTemperature("");
     setSelectedSymptoms([]);
+    setFieldErrors({});
     setMetrics(await api.metrics(astronautId));
     setJournal(await api.journal(astronautId));
   }
+}
+
+type DetailField = "sleep" | "mood" | "systolic" | "diastolic" | "temperature" | "form";
+type RecordTone = "good" | "mid" | "bad";
+
+const DETAIL_HINTS: Record<DetailField, string> = {
+  sleep: "Hours from 0 to 24, such as 7.5. Leave empty if you are not recording sleep.",
+  mood: "Whole number from 1 to 5. Leave empty if you are not recording mood.",
+  systolic: "40–300, and higher than diastolic. Enter both pressure numbers or neither.",
+  diastolic: "20–200, and lower than systolic.",
+  temperature: "20–50 °C, or leave empty.",
+  form: "Enter at least one item.",
+};
+
+function validateDetail(sleep: string, mood: string, systolic: string, diastolic: string, temperature: string, hasSymptom: boolean): Partial<Record<DetailField, string>> {
+  const errors: Partial<Record<DetailField, string>> = {};
+  if (sleep.trim()) {
+    const hours = Number(sleep);
+    if (!Number.isFinite(hours) || hours < 0 || hours > 24) errors.sleep = DETAIL_HINTS.sleep;
+  }
+  if (mood.trim()) {
+    const score = Number(mood);
+    if (!Number.isInteger(score) || score < 1 || score > 5) errors.mood = DETAIL_HINTS.mood;
+  }
+  if (systolic.trim() || diastolic.trim()) {
+    const sys = Number(systolic);
+    const dia = Number(diastolic);
+    if (!systolic.trim() || !diastolic.trim() || !(sys >= 40 && sys <= 300) || !(dia >= 20 && dia <= 200) || sys <= dia) {
+      errors.systolic = DETAIL_HINTS.systolic;
+      errors.diastolic = DETAIL_HINTS.diastolic;
+    }
+  }
+  if (temperature.trim()) {
+    const temp = Number(temperature);
+    if (!Number.isFinite(temp) || temp < 20 || temp > 50) errors.temperature = DETAIL_HINTS.temperature;
+  }
+  if (!sleep.trim() && !mood.trim() && !systolic.trim() && !diastolic.trim() && !temperature.trim() && !hasSymptom) {
+    errors.form = DETAIL_HINTS.form;
+  }
+  return errors;
+}
+
+function cameraTone(metric: MetricRow): RecordTone {
+  if (metric.validity_status === "VALID" && metric.value != null) return "good";
+  if (metric.validity_status === "INCONCLUSIVE") return "mid";
+  return "bad";
+}
+
+function dayCompleteness(journal: JournalRow[]): Map<string, RecordTone> {
+  const byDay = new Map<string, Set<string>>();
+  for (const entry of journal) {
+    const day = entry.recorded_at_utc.slice(0, 10);
+    const kinds = byDay.get(day) ?? new Set<string>();
+    kinds.add(entry.entry_type);
+    byDay.set(day, kinds);
+  }
+  const tones = new Map<string, RecordTone>();
+  for (const [day, kinds] of byDay) {
+    tones.set(day, kinds.has("SLEEP") && kinds.has("MOOD") ? "good" : "mid");
+  }
+  return tones;
+}
+
+function DateMark({ icon, tone, text }: { icon: "camera" | "journal"; tone: RecordTone; text: string }) {
+  return (
+    <span className={`date-mark ${tone}`}>
+      {icon === "camera" ? <CameraIcon /> : <JournalIcon />}
+      <span className="mono">{text}</span>
+    </span>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg className="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d="M4 7h3l2-2h6l2 2h3v12H4V7zm8 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
+    </svg>
+  );
+}
+
+function JournalIcon() {
+  return (
+    <svg className="row-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d="M6 3h11a2 2 0 0 1 2 2v16H8a3 3 0 0 0-3 3V4a1 1 0 0 1 1-1zm2 5h7v2H8V8zm0 4h7v2H8v-2z" />
+    </svg>
+  );
 }
 
 function PulseChart({ points }: { points: MetricRow[] }) {
@@ -450,7 +709,6 @@ export function TasksPage() {
   }, []);
   return (
     <section>
-      <h1>Health achieve</h1>
       <p className="muted">Completion means the check was saved, including an inconclusive attempt. It does not reward a particular pulse number.</p>
       {error && <p className="error">{error}</p>}
       <table>
@@ -466,7 +724,7 @@ export function TasksPage() {
           ))}
         </tbody>
       </table>
-      {tasks.length === 0 && <p>No tasks yet. Add a crew member on Home.</p>}
+      {tasks.length === 0 && <p>No tasks yet. Add a crew member on Profile.</p>}
     </section>
   );
 }
@@ -480,7 +738,6 @@ function taskClass(status: string): string {
 export function WikiPage() {
   return (
     <section>
-      <h1>Health Engine wiki</h1>
       <article className="panel">
         <h2>What a face check does</h2>
         <p>The camera watches the forehead and cheeks. Each heartbeat changes skin color by a very small amount. The program looks for that rhythm. It does not recognize the person, and it does not keep the picture.</p>
@@ -492,6 +749,10 @@ export function WikiPage() {
       <article className="panel">
         <h2>Why a result can be missing</h2>
         <p>Movement, poor light, more than one face, a short recording, or a weak color signal means the program shows no pulse number. That is a failed measurement, not a statement about health.</p>
+      </article>
+      <article className="panel">
+        <h2>Accounts</h2>
+        <p>Role labels are stored for later. This version has no separate logins, so anyone at this computer can open the local records. The program assigns each profile a crew identifier. That identifier is the last line on the profile card and is included in exported records.</p>
       </article>
       <article className="panel">
         <h2>Labels</h2>
@@ -531,7 +792,6 @@ export function SettingsPage({ storage, onChanged }: { storage: StorageStatus | 
 
   return (
     <section>
-      <h1>Settings</h1>
       {error && <p className="error">{error}</p>}
       <p className="mono">{info || "Open the desktop application to read the installed version."}</p>
       <p>Data directory: {storage?.data_dir ?? "available in the desktop application"}</p>

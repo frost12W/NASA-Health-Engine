@@ -1,0 +1,25 @@
+---
+description: Rebuild and launch Health Engine after every completed user task
+alwaysApply: true
+---
+
+# Rebuild and launch
+
+After you finish a task the user gave you, rebuild the desktop program and launch it before the final reply.
+
+Use the debug executable with the interface packed inside it. Do not start `npm run tauri dev` and do not leave the window loading `localhost`.
+
+On this computer the Rust output goes to `D:\HealthEngine-build\cargo-target`. Stop a running `health-engine.exe` before the link step so the file can be replaced, then start the new one:
+
+```powershell
+$env:CARGO_TARGET_DIR = "D:\HealthEngine-build\cargo-target"
+$env:TEMP = "D:\HealthEngine-build\tmp"
+$env:TMP = "D:\HealthEngine-build\tmp"
+$env:CARGO_PROFILE_DEV_DEBUG = "line-tables-only"
+Get-Process health-engine -ErrorAction SilentlyContinue | Stop-Process -Force
+npm run build
+cargo build --manifest-path src-tauri\Cargo.toml
+Start-Process "D:\HealthEngine-build\cargo-target\debug\health-engine.exe"
+```
+
+Confirm the Health Engine window opened and is not the “localhost refused to connect” page. Say the executable path in the reply.

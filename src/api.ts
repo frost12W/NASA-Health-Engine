@@ -36,8 +36,11 @@ export const api = {
   snapshot: () => call<string>("write_month_snapshot"),
   exportRecords: (astronautId: string) => call<string>("export_records", { astronautId }),
   astronauts: () => call<Astronaut[]>("list_astronauts"),
-  createAstronaut: (crewIdentifier: string, displayName: string, role: string) =>
-    call<string>("create_astronaut", { crewIdentifier, displayName, role }),
+  createAstronaut: (displayName: string, ageYears: number, role: string, systolic: number, diastolic: number, pulse: number) =>
+    call<string>("create_astronaut", { displayName, ageYears, role, systolic, diastolic, pulse }),
+  startMission: () => call<void>("start_mission"),
+  pauseMission: () => call<void>("pause_mission"),
+  resumeMission: () => call<void>("resume_mission"),
   home: () => call<HomeCard[]>("home_cards"),
   tasks: () => call<TaskView[]>("list_tasks"),
   metrics: (astronautId: string) => call<MetricRow[]>("list_metrics", { astronautId }),

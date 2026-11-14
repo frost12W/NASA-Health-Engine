@@ -30,6 +30,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::mission_clock,
+            commands::start_mission,
+            commands::pause_mission,
+            commands::resume_mission,
             commands::app_info,
             commands::get_mission_config,
             commands::set_mission_config,

@@ -9,6 +9,7 @@ pub struct MissionClock {
     pub doy_label: String,
     pub met: String,
     pub circadian: String,
+    pub mission_state: String,
     pub clock_sync: String,
     pub clock_note: String,
 }
@@ -18,19 +19,25 @@ pub fn describe(
     epoch: Option<DateTime<Utc>>,
     day_start: Option<NaiveTime>,
     day_end: Option<NaiveTime>,
+    paused: bool,
+    frozen_seconds: i64,
 ) -> MissionClock {
     let doy = now.ordinal();
+    let centiseconds = now.timestamp_subsec_millis() / 10;
+    let (met, mission_state) = match epoch {
+        Some(_epoch) if paused => (format_elapsed(frozen_seconds.max(0)), "paused".to_string()),
+        Some(epoch) => (format_met(now, epoch), "running".to_string()),
+        None => ("MET —".to_string(), "idle".to_string()),
+    };
     MissionClock {
-        utc: now.format("%Y-%m-%d | %H:%M:%S UTC").to_string(),
+        utc: format!("{}{centiseconds:02} UTC", now.format("%Y-%m-%d | %H:%M:%S.")),
         doy,
         doy_label: format!("DOY {doy}"),
-        met: match epoch {
-            Some(epoch) => format_met(now, epoch),
-            None => "MET not configured".to_string(),
-        },
+        met,
         circadian: circadian_label(now, day_start, day_end),
+        mission_state,
         clock_sync: "unknown".to_string(),
-        clock_note: "Clock synchronization is unknown. The time shown is this computer's UTC clock, to the second.".to_string(),
+        clock_note: "Clock synchronization is unknown. The time shown is this computer's UTC clock.".to_string(),
     }
 }
 
@@ -46,21 +53,35 @@ pub fn format_met(now: DateTime<Utc>, epoch: DateTime<Utc>) -> String {
     format!("MET {sign}{days:03}d {hours:02}:{minutes:02}:{secs:02}")
 }
 
+pub fn format_elapsed(seconds: i64) -> String {
+    let sign = if seconds < 0 { '-' } else { '+' };
+    let absolute = seconds.abs();
+    let days = absolute / 86_400;
+    let remainder = absolute % 86_400;
+    let hours = remainder / 3_600;
+    let minutes = (remainder % 3_600) / 60;
+    let secs = remainder % 60;
+    format!("MET {sign}{days:03}d {hours:02}:{minutes:02}:{secs:02}")
+}
+
 pub fn circadian_label(now: DateTime<Utc>, day_start: Option<NaiveTime>, day_end: Option<NaiveTime>) -> String {
-    let (Some(start), Some(end)) = (day_start, day_end) else {
-        return "Schedule not configured".to_string();
+    let fallback_start = NaiveTime::from_hms_opt(6, 0, 0).expect("06:00");
+    let fallback_end = NaiveTime::from_hms_opt(21, 30, 0).expect("21:30");
+    let (start, end) = match (day_start, day_end) {
+        (Some(start), Some(end)) if start != end => (start, end),
+        _ => (fallback_start, fallback_end),
     };
-    if start == end {
-        return "Schedule not configured".to_string();
-    }
     let current = NaiveTime::from_hms_opt(now.hour(), now.minute(), now.second()).unwrap_or(start);
     let during_day = if start < end {
         current >= start && current < end
     } else {
         current >= start || current < end
     };
-    let phase = if during_day { "DAY SHIFT" } else { "SLEEP CYCLE" };
-    format!("{}–{} UTC / {phase}", start.format("%H:%M"), end.format("%H:%M"))
+    if during_day {
+        format!("{}–{} UTC • DAY SHIFT", start.format("%H:%M"), end.format("%H:%M"))
+    } else {
+        format!("{}–{} UTC • SLEEP CYCLE", end.format("%H:%M"), start.format("%H:%M"))
+    }
 }
 
 pub fn parse_epoch(text: &str) -> Result<DateTime<Utc>, String> {
@@ -88,11 +109,12 @@ mod tests {
 
     #[test]
     fn day_of_year_matches_the_specification_example() {
-        let clock = describe(at("2026-11-14T18:58:00Z"), None, None, None);
+        let clock = describe(at("2026-11-14T18:58:00Z"), None, None, None, false, 0);
         assert_eq!(clock.doy, 318);
         assert_eq!(clock.doy_label, "DOY 318");
-        assert_eq!(clock.met, "MET not configured");
-        assert!(clock.utc.contains("18:58:00 UTC"));
+        assert_eq!(clock.met, "MET —");
+        assert_eq!(clock.mission_state, "idle");
+        assert!(clock.utc.contains("18:58:00.00 UTC"));
     }
 
     #[test]
@@ -107,8 +129,8 @@ mod tests {
     fn circadian_phase_uses_the_configured_utc_window() {
         let start = parse_hhmm("06:00").unwrap();
         let end = parse_hhmm("21:30").unwrap();
-        assert!(circadian_label(at("2026-11-14T12:00:00Z"), Some(start), Some(end)).contains("DAY SHIFT"));
-        assert!(circadian_label(at("2026-11-14T22:00:00Z"), Some(start), Some(end)).contains("SLEEP CYCLE"));
-        assert_eq!(circadian_label(at("2026-11-14T12:00:00Z"), None, None), "Schedule not configured");
+        assert!(circadian_label(at("2026-11-14T12:00:00Z"), Some(start), Some(end)).contains("06:00–21:30 UTC • DAY SHIFT"));
+        assert!(circadian_label(at("2026-11-14T22:00:00Z"), Some(start), Some(end)).contains("21:30–06:00 UTC • SLEEP CYCLE"));
+        assert!(circadian_label(at("2026-11-14T12:00:00Z"), None, None).contains("DAY SHIFT"));
     }
 }
