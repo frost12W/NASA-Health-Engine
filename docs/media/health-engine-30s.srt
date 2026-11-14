@@ -1,0 +1,31 @@
+1
+00:00:00,400 --> 00:00:03,200
+Health Engine: an offline desktop app for crew health checks.
+
+2
+00:00:03,600 --> 00:00:07,800
+No network, no account — everything runs on the station laptop.
+
+3
+00:00:08,200 --> 00:00:11,400
+Profiles, a 30-second face check, and manual vitals in one place.
+
+4
+00:00:11,600 --> 00:00:14,800
+Records stay in a local SQLite file on this computer.
+
+5
+00:00:15,200 --> 00:00:18,600
+One valid check: 65.9 bpm from a laptop camera.
+
+6
+00:00:18,800 --> 00:00:20,800
+POS, CHROM and GREEN agree within 0.2 bpm.
+
+7
+00:00:21,200 --> 00:00:25,600
+Frame timing, motion, light and method agreement must all pass.
+
+8
+00:00:26,200 --> 00:00:29,600
+Screening support, not a diagnosis. Open source.
