@@ -61,3 +61,5 @@ npm run build
 ## Controlling documents
 
 Product behavior comes from `docs/technical-specification.txt`. The system shape comes from `docs/architecture-document.txt`. If they disagree, the technical specification wins. The first prototype report is evidence from an experiment, not a second specification.
+
+Решения по методам и границам заявлений: `docs/DECISIONS.md`.
