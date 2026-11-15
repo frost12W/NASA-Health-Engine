@@ -2,6 +2,15 @@
 
 Updated: 15.11.2026. Everything below was checked against the live repository.
 
+## Team
+
+| Роль | Имя (латиницей) | Зона ответственности |
+|---|---|---|
+| Team lead | Artem Maltsev | product, Rust shell, decisions |
+| Signal | Argen Bagylov | POS / CHROM, quality gates |
+| Interface | Argen Bagylov, Artem Maltsev | React screens, records, export |
+| Docs | Argen Bagylov | measurements, sources, submission |
+
 ## Public links (verified without login, HTTP 200)
 
 | Поле формы | Значение |
