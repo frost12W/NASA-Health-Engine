@@ -251,6 +251,48 @@ pub fn add_manual_entries(
 }
 
 #[tauri::command]
+pub fn reference_library(compare: bool) -> Result<Value, String> {
+    let root = crate::worker::worker_root()?;
+    let python = crate::worker::python_executable(&root)?;
+    let mode = if compare { "compare" } else { "status" };
+    let mut command = std::process::Command::new(python);
+    command
+        .arg("-m")
+        .arg("worker.reference_check")
+        .arg(mode)
+        .current_dir(&root)
+        .env("PYTHONIOENCODING", "utf-8")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command
+        .output()
+        .map_err(|error| format!("The reference check could not start: {error}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let payload = serde_json::from_str::<Value>(text.trim()).map_err(|_| {
+        let error_text = String::from_utf8_lossy(&output.stderr);
+        format!(
+            "The reference check did not return a report. {}",
+            error_text.chars().take(500).collect::<String>()
+        )
+    })?;
+    if let Some(message) = payload.get("error").and_then(Value::as_str) {
+        if payload.get("ok").and_then(Value::as_bool) == Some(false) {
+            return Err(message.to_string());
+        }
+    }
+    if !output.status.success() {
+        return Err("The reference check stopped before writing a report.".to_string());
+    }
+    Ok(payload)
+}
+
+#[tauri::command]
 pub fn sync_status(state: State<AppState>) -> Result<Value, String> {
     let conn = db(&state)?;
     let (waiting, sent, error) = db::queue_counts(&conn)?;

@@ -216,20 +216,43 @@ table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 th, td { border-bottom: 1px solid rgba(197, 208, 220, 0.16); text-align: left; padding: 0.45rem 0.35rem; vertical-align: top; }
 th { color: var(--silver); font-weight: 560; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.75rem; }
 
-.preview-frame { position: relative; width: min(100%, 720px); margin-top: 0.6rem; }
-.preview { width: 100%; display: block; background: #05070a; border: 1px solid var(--line); min-height: 240px; object-fit: contain; }
-
-.preview-frame.live::after {
-  content: "";
+.preview-frame { position: relative; width: min(100%, 720px); margin-top: 0.6rem; background: #05070a; }
+.preview { width: 100%; display: block; background: #05070a; border: 0; min-height: 240px; object-fit: contain; }
+.visor {
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-  box-shadow: 0 0 12px var(--cyan);
-  animation: sweep 2.2s linear infinite;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
+  overflow: visible;
 }
+.visor-off { color: #8b95a3; }
+.visor-live { color: #3dd68c; filter: drop-shadow(0 0 5px rgba(61, 214, 140, 0.85)); }
+.visor-scan { color: #f0c14a; filter: drop-shadow(0 0 6px rgba(240, 193, 74, 0.9)); }
+.visor-scan .visor-scanline { animation: visor-sweep 2.2s linear infinite; }
+
+.trend-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem 0.95rem;
+  background: #070b10;
+  border: 1px solid var(--line);
+}
+.trend-card header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-end; }
+.trend-card h3 { font-size: 0.78rem; }
+.trend-value {
+  margin: 0;
+  font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  font-size: 1.7rem;
+  line-height: 1;
+  color: #f4fbff;
+}
+.trend-value span { font-size: 0.85rem; color: #8ea0b3; }
+.trend-spark, .trend-plot { width: 100%; display: block; }
+.trend-spark { height: 46px; }
+.trend-plot-wrap { position: relative; }
+.trend-plot { height: 160px; cursor: crosshair; }
 
 .meter { height: 8px; background: #070b10; border: 1px solid var(--line); overflow: hidden; }
 .meter span {
@@ -268,10 +291,10 @@ ul { padding-left: 1.1rem; }
   to { opacity: 1; transform: none; }
 }
 
-@keyframes sweep {
-  from { top: 0; opacity: 0.25; }
+@keyframes visor-sweep {
+  from { transform: translateY(36px); opacity: 0.35; }
   50% { opacity: 1; }
-  to { top: calc(100% - 2px); opacity: 0.25; }
+  to { transform: translateY(520px); opacity: 0.35; }
 }
 
 @media (max-width: 1180px) {

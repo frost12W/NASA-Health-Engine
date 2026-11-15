@@ -52,6 +52,7 @@ pub fn run() {
             commands::journal_catalog,
             commands::add_journal_entry,
             commands::add_manual_entries,
+            commands::reference_library,
             commands::sync_status,
             commands::list_alerts,
             commands::acknowledge_alert,

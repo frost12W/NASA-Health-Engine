@@ -8,6 +8,7 @@ import type {
   JournalRow,
   MetricRow,
   MissionClock,
+  ReferenceLibrary,
   MissionConfig,
   StorageStatus,
   SyncStatus,
@@ -55,6 +56,7 @@ export const api = {
   addManual: (astronautId: string, systolic: string, diastolic: string, temperature: string, source: string) =>
     call<number>("add_manual_entries", { astronautId, systolic, diastolic, temperature, source }),
   sync: () => call<SyncStatus>("sync_status"),
+  referenceLibrary: (compare: boolean) => call<ReferenceLibrary>("reference_library", { compare }),
   alerts: () => call<AlertRow[]>("list_alerts"),
   acknowledge: (alertId: string) => call<void>("acknowledge_alert", { alertId }),
   worker: () => call<Record<string, unknown>>("worker_status"),

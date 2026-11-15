@@ -1,6 +1,7 @@
 // STEP CHECK. CAMERA PULSE KEEPS ITS OWN SAVE RULES. THIS FILE SAVES ONLY SELF-REPORT AND MANUAL NUMBERS.
 import { useEffect, useState } from "react";
 import { api, desktopAvailable } from "./api";
+import { NASA_HAZARDS_PAGE } from "./nasa";
 import { CrewField, DETAIL_HINTS, HealthCheckPage, reasonPhrase, sourceLabel, validateDetail, type CheckReason, type DetailField } from "./pages";
 import type { SyncStatus, WorkerEvent } from "./types";
 
@@ -91,6 +92,7 @@ export function CheckFlow({ astronautId, displayName, reason, onDone }: {
         <section className="panel">
           <h2>Sleep, mood, and symptoms</h2>
           <p className="muted">The astronaut enters these notes. The camera does not determine them.</p>
+          <p className="muted">NASA Human Research Program, Isolation and Confinement: behavioral responses occur among people isolated in a small space for a long time. This note is the astronaut's own record, not a judgment. Source: {NASA_HAZARDS_PAGE}</p>
           <div className="journal-form">
             <CrewField label="Sleep, hours" hint={DETAIL_HINTS.sleep} error={errors.sleep}>
               <input value={sleep} onChange={(event) => setSleep(event.target.value)} />
@@ -186,6 +188,7 @@ export function CheckFlow({ astronautId, displayName, reason, onDone }: {
           {saved && (
             <>
               <p>The record was saved on this computer.</p>
+              <p className="muted">NASA Human Research Program, Distance from Earth: medical care becomes harder to receive farther from Earth. The saved record stays on this computer until a channel exists. Source: {NASA_HAZARDS_PAGE}</p>
               <p>Transfer to the physician: {sync && (sync.error_count ?? 0) > 0 ? "error" : "waiting to send"}.</p>
               <p className="muted">The channel is unavailable. Waiting to send: {sync?.waiting_count ?? "—"}, sent: {sync?.sent_count ?? 0}, error: {sync?.error_count ?? 0}.</p>
               <button type="button" onClick={onDone}>Back to summary</button>

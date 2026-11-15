@@ -3,7 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import profileMark from "./assets/profile-mark.png";
 import { api, desktopAvailable } from "./api";
-import type { HomeCard, JournalRow, MetricRow, PersonSession, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
+import { NASA_HAZARDS, NASA_HAZARDS_PAGE, NASA_RESEARCH_PAGE, NASA_RISKS_PAGE } from "./nasa";
+import { TrendChart } from "./trend-chart";
+import { VisorFrame, type VisorState } from "./visor-frame";
+import type { HomeCard, JournalRow, MetricRow, PersonSession, ReferenceLibrary, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
 
 export type CheckReason = "scheduled" | "wellbeing";
 
@@ -101,9 +104,9 @@ export function HomePage({ session, sync, onLeave, onStart, onOpenHistory }: {
         <section className="panel">
           <h2>Trends</h2>
           <p className="muted">A line uses saved numbers only. Gaps stay empty. The camera supplies pulse only.</p>
-          {pulsePoints.length === 0 ? <p>The pulse chart appears after a trustworthy camera check.</p> : <SeriesChart points={pulsePoints} label="Camera pulse" stroke="#7dcea0" />}
-          {pressurePoints.length > 0 && <SeriesChart points={pressurePoints} label="Systolic pressure" stroke="#3ec6ff" />}
-          {temperaturePoints.length > 0 && <SeriesChart points={temperaturePoints} label="Temperature" stroke="#e6c84a" />}
+          {pulsePoints.length === 0 ? <p>The pulse chart appears after a trustworthy camera check.</p> : <TrendChart points={pulsePoints} label="Camera pulse" stroke="#7dcea0" unit="bpm" />}
+          {pressurePoints.length > 0 && <TrendChart points={pressurePoints} label="Systolic pressure" stroke="#3ec6ff" unit="mmHg" />}
+          {temperaturePoints.length > 0 && <TrendChart points={temperaturePoints} label="Temperature" stroke="#e6c84a" unit="°C" />}
         </section>
         <section className="panel">
           <h2>Transfer to the physician</h2>
@@ -112,6 +115,7 @@ export function HomePage({ session, sync, onLeave, onStart, onOpenHistory }: {
           <p>Sent: {sync?.sent_count ?? 0}</p>
           <p>Send error: {sync?.error_count ?? 0}</p>
           <p className="muted">The channel to the physician on Earth is unavailable. Records stay on this computer and leave when a channel is configured. The onboard medic has no access in this version.</p>
+          <p className="muted">NASA Human Research Program, Distance from Earth: instructions, supplies, and medical care become harder to receive as a crew goes farther from Earth. That is why this record stays here until a channel exists. Source: {NASA_HAZARDS_PAGE}</p>
         </section>
       </div>
     </section>
@@ -272,6 +276,7 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
   const remaining = Math.max(0, duration - elapsed);
   const fill = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0;
   const recording = phase === "recording" || phase === "saving";
+  const visor: VisorState = phase === "recording" ? "scan" : preview ? "live" : "off";
 
   return (
     <section className="block-flow">
@@ -322,8 +327,9 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
         </div>
       )}
       {phase === "saving" && <p className="mono">Writing the result to the database…</p>}
-      <div className={phase === "recording" ? "preview-frame live" : "preview-frame"}>
+      <div className={`preview-frame visor-${visor}`}>
         {preview ? <img className="preview" alt="Camera preview with forehead and cheek regions" src={preview} /> : <div className="preview" />}
+        <VisorFrame state={visor} />
       </div>
       {result && (
         <section className="panel">
@@ -485,9 +491,9 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
       </section>
       <section className="panel detail-block">
         <h2>Camera pulse</h2>
-        {pulse.length === 0 ? <p>There is no trustworthy pulse for the selected period. An insufficient signal is not drawn on the chart.</p> : <SeriesChart points={pulse} label="Trustworthy camera pulse" stroke="#7dcea0" />}
-        {pressure.length > 0 && <SeriesChart points={pressure} label="Systolic pressure" stroke="#3ec6ff" />}
-        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Temperature" stroke="#e6c84a" />}
+        {pulse.length === 0 ? <p>There is no trustworthy pulse for the selected period. An insufficient signal is not drawn on the chart.</p> : <TrendChart points={pulse} label="Trustworthy camera pulse" stroke="#7dcea0" unit="bpm" tall />}
+        {pressure.length > 0 && <TrendChart points={pressure} label="Systolic pressure" stroke="#3ec6ff" unit="mmHg" tall />}
+        {temperatures.length > 0 && <TrendChart points={temperatures} label="Temperature" stroke="#e6c84a" unit="°C" tall />}
         <table>
           <thead><tr><th>Time UTC</th><th>Value</th><th>Quality</th><th>Source</th></tr></thead>
           <tbody>
@@ -619,25 +625,6 @@ function JournalIcon() {
   );
 }
 
-function SeriesChart({ points, label, stroke }: { points: MetricRow[]; label: string; stroke: string }) {
-  const ordered = [...points].reverse();
-  const values = ordered.map((point) => point.value ?? 0);
-  const min = Math.min(...values) - 5;
-  const max = Math.max(...values) + 5;
-  const span = Math.max(max - min, 1);
-  const step = ordered.length === 1 ? 0 : 100 / (ordered.length - 1);
-  const path = ordered.map((point, index) => {
-    const x = index * step;
-    const y = 100 - (((point.value ?? min) - min) / span) * 100;
-    return `${index === 0 ? "M" : "L"}${x},${y}`;
-  }).join(" ");
-  return (
-    <svg className="chart" viewBox="0 0 100 100" role="img" aria-label={label}>
-      <path d={path} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
 export function TasksPage({ astronautId }: { astronautId: string }) {
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [error, setError] = useState("");
@@ -703,6 +690,82 @@ export function WikiPage() {
   );
 }
 
+function NasaSourcePanel() {
+  return (
+    <section className="panel">
+      <h2>NASA Human Research Program</h2>
+      <p className="muted">These five hazards are quoted from the NASA source listed for this health-monitoring challenge. They explain why a check is kept onboard. They are not a diagnosis and they do not set a medical threshold.</p>
+      <ul className="missed">
+        {NASA_HAZARDS.map((hazard) => (
+          <li key={hazard.id}><strong>{hazard.name}.</strong> {hazard.summary}</li>
+        ))}
+      </ul>
+      <p className="muted">Hazards: {NASA_HAZARDS_PAGE}</p>
+      <p className="muted">Risks: {NASA_RISKS_PAGE}</p>
+      <p className="muted">Ongoing research: {NASA_RESEARCH_PAGE}</p>
+    </section>
+  );
+}
+
+function ReferencePanel() {
+  const [library, setLibrary] = useState<ReferenceLibrary | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!desktopAvailable()) return;
+    void api.referenceLibrary(false).then(setLibrary).catch((reason: unknown) => setError(String(reason)));
+  }, []);
+
+  return (
+    <section className="panel">
+      <h2>Open reference recordings</h2>
+      <p className="muted">The same pulse method used by the camera is compared with the PPG waveform stored in the SCAMPS example, the open set that fits on this computer. Those faces are synthetic. A match here is not this astronaut's pulse and not a diagnosis. PURE, UBFC-rPPG, VIPL-HR, MMPD, and iBVP stay behind an institutional request or are larger than the 50 GB set aside on disk D.</p>
+      {error && <p className="error">{error}</p>}
+      {library && (
+        <>
+          <p>Folder: <span className="mono">{library.root}</span></p>
+          <p>Videos: {library.videos.complete ? "ready" : library.videos.present ? `${library.videos.bytes} bytes, still copying` : "not on this computer yet"}</p>
+          <p>Labels: {library.labels.present ? `${library.labels.bytes} bytes` : "not on this computer yet"}</p>
+          <p className="muted">{library.source.limit}</p>
+          <p className="muted">{library.source.url}</p>
+        </>
+      )}
+      <button
+        type="button"
+        disabled={busy || !library?.videos.complete}
+        onClick={() => {
+          setBusy(true);
+          setError("");
+          void api.referenceLibrary(true).then(setLibrary).catch((reason: unknown) => setError(String(reason))).finally(() => setBusy(false));
+        }}
+      >
+        {busy ? "Comparing" : "Compare with the reference clips"}
+      </button>
+      {library?.note && <p>{library.note}</p>}
+      {library?.clips && library.clips.length > 0 && (
+        <>
+          <p>Accepted by the camera gates: {library.accepted_count ?? 0} of {library.clip_count ?? library.clips.length}. Mean absolute difference: {library.mean_abs_difference_bpm ?? "—"} bpm.</p>
+          <table>
+            <thead><tr><th>Clip</th><th>Reference</th><th>Our method</th><th>Difference</th><th>Quality</th></tr></thead>
+            <tbody>
+              {library.clips.map((clip) => (
+                <tr key={clip.clip}>
+                  <td className="mono">{clip.clip}</td>
+                  <td>{clip.reference_bpm ?? "—"}</td>
+                  <td>{clip.method_bpm ?? "—"}</td>
+                  <td>{clip.difference_bpm ?? "—"}</td>
+                  <td>{clip.validity_status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function SettingsPage({ session, storage, onChanged }: { session: PersonSession; storage: StorageStatus | null; onChanged: () => Promise<void> }) {
   const [info, setInfo] = useState<string>("");
   const [epoch, setEpoch] = useState("");
@@ -762,6 +825,8 @@ export function SettingsPage({ session, storage, onChanged }: { session: PersonS
           <li>There are no agreed medical rules, so the program does not set thresholds and does not call a result a diagnosis.</li>
         </ul>
       </section>
+      <NasaSourcePanel />
+      <ReferencePanel />
       <aside className="info-callout" role="note">
         <svg className="info-icon" viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />

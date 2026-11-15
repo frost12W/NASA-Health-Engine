@@ -1,5 +1,36 @@
 // SHARED RECORD SHAPES FOR THE LOCAL DESKTOP INTERFACE.
 
+export interface ReferenceClip {
+  clip: string;
+  frames: number;
+  reference_bpm: number | null;
+  method_bpm: number | null;
+  validity_status: string;
+  difference_bpm: number | null;
+  quality_score: number;
+  rejection_reasons: string[];
+}
+
+export interface ReferenceLibrary {
+  root: string;
+  source: {
+    name: string;
+    url: string;
+    labels_url: string;
+    paper: string;
+    kind: string;
+    limit: string;
+  };
+  videos: { present: boolean; bytes: number; complete: boolean };
+  labels: { present: boolean; bytes: number; complete: boolean };
+  clips?: ReferenceClip[];
+  accepted_count?: number;
+  clip_count?: number;
+  mean_abs_difference_bpm?: number | null;
+  note?: string;
+  error?: string;
+}
+
 export interface Astronaut {
   astronaut_id: string;
   crew_identifier: string;

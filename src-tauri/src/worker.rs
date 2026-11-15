@@ -194,7 +194,7 @@ fn read_worker(
     }
 }
 
-fn worker_root() -> Result<PathBuf, String> {
+pub(crate) fn worker_root() -> Result<PathBuf, String> {
     if let Ok(dir) = std::env::var("HEALTH_ENGINE_WORKER_DIR") {
         return Ok(PathBuf::from(dir));
     }
@@ -205,7 +205,7 @@ fn worker_root() -> Result<PathBuf, String> {
     Err("The vision worker files were not found beside the application.".into())
 }
 
-fn python_executable(root: &Path) -> Result<PathBuf, String> {
+pub(crate) fn python_executable(root: &Path) -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("HEALTH_ENGINE_PYTHON") {
         return Ok(PathBuf::from(path));
     }
