@@ -294,7 +294,7 @@ pub fn match_person(conn: &Connection, display_name: &str) -> Result<Astronaut, 
     active
         .into_iter()
         .find(|person| person.display_name.trim().to_lowercase() == name.to_lowercase())
-        .ok_or_else(|| "Этот логин не совпадает с профилем на этом компьютере. Чужие записи не открываются.".to_string())
+        .ok_or_else(|| "This login does not match the profile on this computer. Other people's records stay closed.".to_string())
 }
 
 pub fn overwrite_person_name(conn: &Connection, display_name: &str) -> Result<Astronaut, String> {
@@ -302,7 +302,7 @@ pub fn overwrite_person_name(conn: &Connection, display_name: &str) -> Result<As
     let person = list_astronauts(conn)?
         .into_iter()
         .next()
-        .ok_or_else(|| "На этом компьютере ещё нет профиля.".to_string())?;
+        .ok_or_else(|| "There is no profile on this computer yet.".to_string())?;
     let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
     tx.execute(
         "UPDATE astronauts SET display_name = ?1, updated_at_utc = ?2 WHERE astronaut_id = ?3",

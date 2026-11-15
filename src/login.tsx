@@ -7,10 +7,10 @@ type LoginField = "name" | "age" | "role" | "password";
 type GateMode = "loading" | "create" | "return";
 
 const HINTS: Record<LoginField, string> = {
-  name: "Фамилия и имя, до 80 символов.",
-  age: "Полных лет, от 18 до 99.",
-  role: "CREW, MEDICAL или ADMIN.",
-  password: "От 4 до 64 символов. Проверка только на этом экране, пароль никуда не записывается.",
+  name: "Family name and given name, up to 80 characters.",
+  age: "Whole years, from 18 to 99.",
+  role: "CREW, MEDICAL, or ADMIN.",
+  password: "4 to 64 characters. Checked only on this screen. The password is not stored.",
 };
 
 export function testPassword(password: string): string | null {
@@ -86,7 +86,7 @@ export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => vo
           setErrors(next);
           if (Object.keys(next).length > 0 || mode === "loading") return;
           if (!desktopAvailable()) {
-            setError("Окно Health Engine не подключено к локальной базе. Откройте программу на этом компьютере.");
+            setError("This Health Engine window is not connected to the local database. Open the program on this computer.");
             return;
           }
           setBusy(true);
@@ -106,29 +106,29 @@ export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => vo
           }).finally(() => setBusy(false));
         }}
       >
-        <p className="login-kicker">Тестовый вход</p>
-        <h1>Личный профиль</h1>
-        <p className="muted">Это прототип Health Engine, не учётная запись NASA. Логин и пароль принадлежат только этой программе. Пароль проверяется здесь и не записывается.</p>
+        <p className="login-kicker">Test sign-in</p>
+        <h1>Personal profile</h1>
+        <p className="muted">This is a Health Engine prototype, not a NASA account. The login and password belong only to this program. The password is checked here and is not stored.</p>
         {error && <p className="error">{error}</p>}
-        {mode === "loading" && <p className="muted">Проверяю, есть ли уже профиль на этом компьютере.</p>}
+        {mode === "loading" && <p className="muted">Checking whether this computer already has a profile.</p>}
         {mode !== "loading" && (
           <label className={errors.name ? "invalid" : undefined}>
-            {mode === "return" ? "Логин" : "Логин профиля"}
+            {mode === "return" ? "Login" : "Profile login"}
             <input value={name} autoComplete="off" onChange={(event) => setName(event.target.value)} />
-            <span className={errors.name ? "field-hint bad" : "field-hint"}>{errors.name ?? (mode === "return" ? "Каждый запуск можно ввести другой логин: он заменит имя профиля. Записи проверок остаются." : HINTS.name)}</span>
+            <span className={errors.name ? "field-hint bad" : "field-hint"}>{errors.name ?? (mode === "return" ? "Each launch can use a different login. It replaces the profile name. Check records stay." : HINTS.name)}</span>
           </label>
         )}
         {mode === "create" && (
           <>
             <label className={errors.age ? "invalid" : undefined}>
-              Возраст
+              Age
               <input value={age} inputMode="numeric" autoComplete="off" onChange={(event) => setAge(event.target.value)} />
               <span className={errors.age ? "field-hint bad" : "field-hint"}>{errors.age ?? HINTS.age}</span>
             </label>
             <label className={errors.role ? "invalid" : undefined}>
-              Роль
+              Role
               <select value={role} onChange={(event) => setRole(event.target.value)}>
-                <option value="">Выберите</option>
+                <option value="">Choose</option>
                 <option value="CREW">CREW</option>
                 <option value="MEDICAL">MEDICAL</option>
                 <option value="ADMIN">ADMIN</option>
@@ -139,12 +139,12 @@ export function LoginGate({ onEnter }: { onEnter: (session: PersonSession) => vo
         )}
         {mode !== "loading" && (
           <label className={errors.password ? "invalid" : undefined}>
-            Тестовый пароль
+            Test password
             <input value={password} type="password" autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
             <span className={errors.password ? "field-hint bad" : "field-hint"}>{errors.password ?? HINTS.password}</span>
           </label>
         )}
-        <button type="submit" disabled={busy || mode === "loading"}>Войти</button>
+        <button type="submit" disabled={busy || mode === "loading"}>Sign in</button>
       </form>
     </div>
   );

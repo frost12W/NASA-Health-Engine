@@ -5,7 +5,13 @@ import profileMark from "./assets/profile-mark.png";
 import { api, desktopAvailable } from "./api";
 import type { HomeCard, JournalRow, MetricRow, PersonSession, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
 
-export type CheckReason = "расписанию" | "самочувствию";
+export type CheckReason = "scheduled" | "wellbeing";
+
+export function reasonPhrase(reason: CheckReason | ""): string {
+  if (reason === "scheduled") return "schedule";
+  if (reason === "wellbeing") return "how you feel";
+  return "this check";
+}
 
 export function HomePage({ session, sync, onLeave, onStart, onOpenHistory }: {
   session: PersonSession;
@@ -58,54 +64,54 @@ export function HomePage({ session, sync, onLeave, onStart, onOpenHistory }: {
           <p className="profile-role">{session.role}</p>
         </div>
         <dl className="identity">
-          <div><dt>Возраст</dt><dd>{session.ageYears}</dd></div>
-          <div><dt>Имя</dt><dd>{session.displayName}</dd></div>
-          <div><dt>Роль</dt><dd>{session.role}</dd></div>
-          <div><dt>Тестовый пароль</dt><dd className="mono">{session.sessionPassword}</dd></div>
+          <div><dt>Age</dt><dd>{session.ageYears}</dd></div>
+          <div><dt>Name</dt><dd>{session.displayName}</dd></div>
+          <div><dt>Role</dt><dd>{session.role}</dd></div>
+          <div><dt>Test password</dt><dd className="mono">{session.sessionPassword}</dd></div>
         </dl>
-        <p className="muted">Тестовый пароль только в этом окне. В базу он не записывается. Это не учётная запись NASA.</p>
+        <p className="muted">The test password stays in this window. It is not written to the database. This is not a NASA account.</p>
         <p className="crew-id">PROFILE ID {card?.crew_identifier ?? session.crewIdentifier}</p>
-        <button type="button" onClick={onLeave}>Выйти</button>
+        <button type="button" onClick={onLeave}>Sign out</button>
       </article>
       <div className="summary-stack">
         {error && <p className="error">{error}</p>}
         <section className="panel">
-          <h2>Сводка</h2>
-          <p className="muted">Последние показатели этого профиля. Источник указан у каждого числа. Это не диагноз.</p>
+          <h2>Summary</h2>
+          <p className="muted">Latest readings for this profile. Each number shows its source. This is not a diagnosis.</p>
           <div className="summary-actions">
-            <button type="button" onClick={() => onStart("самочувствию")}>Начать проверку</button>
-            <button type="button" onClick={() => onStart("расписанию")}>Плановая проверка</button>
-            <button type="button" onClick={onOpenHistory}>История и графики</button>
+            <button type="button" onClick={() => onStart("wellbeing")}>Start a check</button>
+            <button type="button" onClick={() => onStart("scheduled")}>Scheduled check</button>
+            <button type="button" onClick={onOpenHistory}>History and charts</button>
           </div>
-          <p>Плановая задача сегодня: <span className={taskClass(card?.task_display_status ?? "DUE")}>{card?.task_display_status ?? "DUE"}</span></p>
+          <p>Today's scheduled task: <span className={taskClass(card?.task_display_status ?? "DUE")}>{card?.task_display_status ?? "DUE"}</span></p>
           <dl className="reading-list">
-            <Reading label="Пульс" value={card?.pulse_bpm ?? null} unit="bpm" source={card?.pulse_source ?? latestCamera?.source_type ?? null} at={latestCamera?.measured_at_utc ?? null} />
-            <Reading label="Давление" value={card?.last_systolic != null ? `${card.last_systolic}/${card.last_diastolic ?? "—"}` : null} unit="mmHg" source={latestSource(metrics, "BLOOD_PRESSURE_SYSTOLIC")} at={latestTime(metrics, "BLOOD_PRESSURE_SYSTOLIC")} />
-            <Reading label="Температура" value={latestValue(metrics, "BODY_TEMPERATURE")} unit="°C" source={latestSource(metrics, "BODY_TEMPERATURE")} at={latestTime(metrics, "BODY_TEMPERATURE")} />
-            <Reading label="Сон" value={card?.sleep_hours ?? null} unit="ч" source={card?.sleep_source ?? null} at={journal.find((entry) => entry.entry_type === "SLEEP")?.recorded_at_utc ?? null} />
-            <Reading label="Настроение" value={card?.wellbeing ?? null} unit="/ 5" source={card?.wellbeing_source ?? null} at={lastMood?.recorded_at_utc ?? null} />
+            <Reading label="Pulse" value={card?.pulse_bpm ?? null} unit="bpm" source={card?.pulse_source ?? latestCamera?.source_type ?? null} at={latestCamera?.measured_at_utc ?? null} />
+            <Reading label="Blood pressure" value={card?.last_systolic != null ? `${card.last_systolic}/${card.last_diastolic ?? "—"}` : null} unit="mmHg" source={latestSource(metrics, "BLOOD_PRESSURE_SYSTOLIC")} at={latestTime(metrics, "BLOOD_PRESSURE_SYSTOLIC")} />
+            <Reading label="Temperature" value={latestValue(metrics, "BODY_TEMPERATURE")} unit="°C" source={latestSource(metrics, "BODY_TEMPERATURE")} at={latestTime(metrics, "BODY_TEMPERATURE")} />
+            <Reading label="Sleep" value={card?.sleep_hours ?? null} unit="h" source={card?.sleep_source ?? null} at={journal.find((entry) => entry.entry_type === "SLEEP")?.recorded_at_utc ?? null} />
+            <Reading label="Mood" value={card?.wellbeing ?? null} unit="/ 5" source={card?.wellbeing_source ?? null} at={lastMood?.recorded_at_utc ?? null} />
           </dl>
-          <p>Качество последнего пульса по камере: {cameraQuality(latestCamera)}</p>
-          <p className="muted">Последняя отметка самочувствия: {lastMood ? `${lastMood.value} из 5, ${lastMood.recorded_at_utc}` : "ещё нет"}.</p>
+          <p>Latest camera pulse quality: {cameraQuality(latestCamera)}</p>
+          <p className="muted">Latest wellbeing note: {lastMood ? `${lastMood.value} of 5, ${lastMood.recorded_at_utc}` : "none yet"}.</p>
           <div>
-            <h3>Пропущено сегодня</h3>
-            {missed.length === 0 ? <p>На сегодня эти отметки уже есть.</p> : <ul className="missed">{missed.map((item) => <li key={item}>{item}</li>)}</ul>}
+            <h3>Missed today</h3>
+            {missed.length === 0 ? <p>These notes are already in for today.</p> : <ul className="missed">{missed.map((item) => <li key={item}>{item}</li>)}</ul>}
           </div>
         </section>
         <section className="panel">
-          <h2>Динамика</h2>
-          <p className="muted">Линия строится только по сохранённым числам. Пропуски не заполняются. Камера даёт только пульс.</p>
-          {pulsePoints.length === 0 ? <p>График пульса появится после достоверной проверки камерой.</p> : <SeriesChart points={pulsePoints} label="Пульс по камере" stroke="#7dcea0" />}
-          {pressurePoints.length > 0 && <SeriesChart points={pressurePoints} label="Систолическое давление" stroke="#3ec6ff" />}
-          {temperaturePoints.length > 0 && <SeriesChart points={temperaturePoints} label="Температура" stroke="#e6c84a" />}
+          <h2>Trends</h2>
+          <p className="muted">A line uses saved numbers only. Gaps stay empty. The camera supplies pulse only.</p>
+          {pulsePoints.length === 0 ? <p>The pulse chart appears after a trustworthy camera check.</p> : <SeriesChart points={pulsePoints} label="Camera pulse" stroke="#7dcea0" />}
+          {pressurePoints.length > 0 && <SeriesChart points={pressurePoints} label="Systolic pressure" stroke="#3ec6ff" />}
+          {temperaturePoints.length > 0 && <SeriesChart points={temperaturePoints} label="Temperature" stroke="#e6c84a" />}
         </section>
         <section className="panel">
-          <h2>Передача врачу</h2>
+          <h2>Transfer to the physician</h2>
           <p><span className={transfer.tone}>{transfer.label}</span></p>
-          <p>Ожидает отправки: {sync?.waiting_count ?? sync?.local_only_count ?? "—"}</p>
-          <p>Отправлено: {sync?.sent_count ?? 0}</p>
-          <p>Ошибка отправки: {sync?.error_count ?? 0}</p>
-          <p className="muted">Канал к врачу на Земле сейчас недоступен. Записи остаются на этом компьютере и уйдут, когда канал будет настроен. Бортовой медик в этой версии доступ не имеет.</p>
+          <p>Waiting to send: {sync?.waiting_count ?? sync?.local_only_count ?? "—"}</p>
+          <p>Sent: {sync?.sent_count ?? 0}</p>
+          <p>Send error: {sync?.error_count ?? 0}</p>
+          <p className="muted">The channel to the physician on Earth is unavailable. Records stay on this computer and leave when a channel is configured. The onboard medic has no access in this version.</p>
         </section>
       </div>
     </section>
@@ -123,11 +129,11 @@ function Reading({ label, value, unit, source, at }: { label: string; value: num
 }
 
 export function sourceLabel(source: string | null): string {
-  if (source === "CAMERA_DERIVED") return "камера";
-  if (source === "SELF_REPORTED") return "ручной ввод";
-  if (source === "EXTERNAL_DEVICE") return "прибор";
-  if (source === "SIMULATED") return "тестовый образец";
-  return "нет записи";
+  if (source === "CAMERA_DERIVED") return "camera";
+  if (source === "SELF_REPORTED") return "manual entry";
+  if (source === "EXTERNAL_DEVICE") return "instrument";
+  if (source === "SIMULATED") return "test sample";
+  return "no record";
 }
 
 function latestValue(metrics: MetricRow[], metricType: string): number | null {
@@ -143,21 +149,21 @@ function latestTime(metrics: MetricRow[], metricType: string): string | null {
 }
 
 function cameraQuality(metric: MetricRow | undefined): string {
-  if (!metric) return "измерения ещё нет";
-  if (metric.validity_status === "VALID") return "достаточно для записи оценки. Это не диагноз.";
-  if (metric.validity_status === "INCONCLUSIVE") return "недостаточно. Число не сохранено как достоверное.";
-  return "нельзя использовать. Число не является оценкой пульса.";
+  if (!metric) return "no measurement yet";
+  if (metric.validity_status === "VALID") return "good enough to store an estimate. This is not a diagnosis.";
+  if (metric.validity_status === "INCONCLUSIVE") return "not good enough. The number was not stored as trustworthy.";
+  return "not usable. The number is not a pulse estimate.";
 }
 
 function missedToday(today: string, metrics: MetricRow[], journal: JournalRow[]): string[] {
   const missed: string[] = [];
   const hasMetric = (metricType: string, source?: string) => metrics.some((metric) => metric.metric_type === metricType && metric.measured_at_utc.startsWith(today) && metric.value != null && (!source || metric.source_type === source));
   const hasJournal = (entryType: string) => journal.some((entry) => entry.entry_type === entryType && entry.recorded_at_utc.startsWith(today));
-  if (!hasMetric("PULSE_RATE", "CAMERA_DERIVED")) missed.push("Пульс по камере");
-  if (!hasMetric("BLOOD_PRESSURE_SYSTOLIC")) missed.push("Давление");
-  if (!hasMetric("BODY_TEMPERATURE")) missed.push("Температура");
-  if (!hasJournal("SLEEP")) missed.push("Сон");
-  if (!hasJournal("MOOD")) missed.push("Настроение");
+  if (!hasMetric("PULSE_RATE", "CAMERA_DERIVED")) missed.push("Camera pulse");
+  if (!hasMetric("BLOOD_PRESSURE_SYSTOLIC")) missed.push("Blood pressure");
+  if (!hasMetric("BODY_TEMPERATURE")) missed.push("Temperature");
+  if (!hasJournal("SLEEP")) missed.push("Sleep");
+  if (!hasJournal("MOOD")) missed.push("Mood");
   return missed;
 }
 
@@ -165,10 +171,10 @@ function transferLabel(sync: SyncStatus | null): { label: string; tone: string }
   const errors = sync?.error_count ?? 0;
   const waiting = sync?.waiting_count ?? sync?.local_only_count ?? 0;
   const sent = sync?.sent_count ?? 0;
-  if (errors > 0) return { label: "Ошибка отправки", tone: "status bad" };
-  if (waiting > 0) return { label: "Ожидает отправки", tone: "status due" };
-  if (sent > 0) return { label: "Отправлено", tone: "status done" };
-  return { label: "Ожидает отправки", tone: "status due" };
+  if (errors > 0) return { label: "Send error", tone: "status bad" };
+  if (waiting > 0) return { label: "Waiting to send", tone: "status due" };
+  if (sent > 0) return { label: "Sent", tone: "status done" };
+  return { label: "Waiting to send", tone: "status due" };
 }
 
 export function CrewField({ label, hint, error, children }: { label: string; hint: string; error?: string; children: ReactNode }) {
@@ -181,16 +187,6 @@ export function CrewField({ label, hint, error, children }: { label: string; hin
   );
 }
 
-const READINESS_RU: Record<string, string> = {
-  "Face landmarks are unavailable, so a face pulse check cannot start.": "Модель лица недоступна, проверку начать нельзя.",
-  "Change the light so the face is neither dark nor washed out.": "Поправьте свет: лицо не должно быть тёмным или засвеченным.",
-  "Hold still and look toward the camera.": "Не двигайтесь и смотрите в камеру.",
-  "Place one face in the frame.": "В кадре должно быть одно лицо.",
-  "Leave only one person in the frame.": "В кадре должен остаться один человек.",
-  "The forehead and cheeks are not clear enough.": "Лоб и щёки видны недостаточно ясно.",
-  "Hold still. The face check can start.": "Можно начинать. Держите лицо неподвижно.",
-};
-
 type CheckPhase = "idle" | "recording" | "saving" | "saved" | "discarded";
 
 export function HealthCheckPage({ astronautId, displayName, launchReason, onSettled }: {
@@ -202,9 +198,9 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
   const [cameras, setCameras] = useState<Array<{ device_index: number; label: string }>>([]);
   const [deviceIndex, setDeviceIndex] = useState(0);
   const [preview, setPreview] = useState("");
-  const [message, setMessage] = useState("Откройте камеру. Проверка идёт для этого профиля.");
+  const [message, setMessage] = useState("Open the camera. This check runs for this profile.");
   const [canStart, setCanStart] = useState(false);
-  const [captureText, setCaptureText] = useState("Камера не открыта.");
+  const [captureText, setCaptureText] = useState("Camera is not open.");
   const [elapsed, setElapsed] = useState(0);
   const [duration, setDuration] = useState(30);
   const [result, setResult] = useState<WorkerEvent | null>(null);
@@ -227,8 +223,7 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
       const payload = event.payload;
       if (payload.event === "preview") {
         if (payload.jpeg_base64) setPreview(`data:image/jpeg;base64,${payload.jpeg_base64}`);
-        const raw = payload.readiness?.message ?? "Камера открыта.";
-        setMessage(READINESS_RU[raw] ?? raw);
+        setMessage(payload.readiness?.message ?? "Camera is open.");
         setCanStart(Boolean(payload.readiness?.can_start));
         setCaptureText(describeCapture(payload));
       }
@@ -279,70 +274,70 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
   const recording = phase === "recording" || phase === "saving";
 
   return (
-    <section>
+    <section className="block-flow">
       <p>
-        Это 30-секундная проверка пульса для {displayName}. Камера оценивает пульс по изменению цвета кожи и не определяет настроение.
-        Это не диагноз. Видео в файл не пишется. В базу попадает только итог, и он остаётся на этом компьютере.
+        This is a 30-second pulse check for {displayName}. The camera estimates pulse from the change in skin color and does not judge mood.
+        This is not a diagnosis. The video is not written to a file. Only the result is stored, and it stays on this computer.
       </p>
       <ol className="steps">
-        <li className={stepClass(1, preview, phase)}>Личный профиль открыт. Проверка идёт только для этого астронавта.</li>
-        <li className={stepClass(2, preview, phase)}>Откройте камеру. Картинка остаётся на экране и в базу не сохраняется.</li>
-        <li className={stepClass(3, preview, phase)}>Запустите проверку по расписанию или по самочувствию. Сигнал 30 секунд копится в памяти.</li>
-        <li className={stepClass(4, preview, phase)}>Когда время вышло, итог сам записывается в локальную базу. Число пульса показывается только если проверки качества пройдены.</li>
+        <li className={stepClass(1, preview, phase)}>The personal profile is open. The check runs only for this astronaut.</li>
+        <li className={stepClass(2, preview, phase)}>Open the camera. The picture stays on screen and is not saved to the database.</li>
+        <li className={stepClass(3, preview, phase)}>Start a scheduled check or a check for how you feel. The 30-second signal stays in memory.</li>
+        <li className={stepClass(4, preview, phase)}>When time is up, the result is written to the local database. A pulse number appears only if the quality checks pass.</li>
       </ol>
-      <p className="mono">Файл базы на этом компьютере: {databasePath || "откройте Health Engine, чтобы увидеть путь"}</p>
+      <p className="mono">Database file on this computer: {databasePath || "open Health Engine to see the path"}</p>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <p className="profile-lock">Профиль: {displayName}</p>
-        <label>Камера
+        <p className="profile-lock">Profile: {displayName}</p>
+        <label>Camera
           <select value={deviceIndex} onChange={(event) => setDeviceIndex(Number(event.target.value))}>
-            {cameras.length === 0 && <option value={0}>Список пуст</option>}
+            {cameras.length === 0 && <option value={0}>List is empty</option>}
             {cameras.map((camera) => (
               <option key={camera.device_index} value={camera.device_index}>{camera.label}</option>
             ))}
           </select>
         </label>
-        <button type="button" disabled={busy || recording} onClick={() => void run(async () => setCameras((await api.cameras()).cameras))}>Найти камеры</button>
-        <button type="button" disabled={busy || recording} onClick={() => void run(async () => { await api.openCamera(deviceIndex); setSaved(""); setResult(null); setPhase("idle"); })}>Открыть камеру</button>
+        <button type="button" disabled={busy || recording} onClick={() => void run(async () => setCameras((await api.cameras()).cameras))}>Find cameras</button>
+        <button type="button" disabled={busy || recording} onClick={() => void run(async () => { await api.openCamera(deviceIndex); setSaved(""); setResult(null); setPhase("idle"); })}>Open camera</button>
         {launchReason ? (
           <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin(launchReason)}>
-            Начать измерение пульса
+            Start pulse measurement
           </button>
         ) : (
           <>
-            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("расписанию")}>Проверка по расписанию</button>
-            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("самочувствию")}>Проверка по самочувствию</button>
+            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("scheduled")}>Scheduled check</button>
+            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("wellbeing")}>Check for how you feel</button>
           </>
         )}
-        <button type="button" disabled={busy || phase !== "recording"} onClick={() => void run(() => api.stopMeasurement())}>Остановить</button>
+        <button type="button" disabled={busy || phase !== "recording"} onClick={() => void run(() => api.stopMeasurement())}>Stop</button>
       </div>
       <p>{message}</p>
       <p className="mono">{captureText}</p>
       {phase === "recording" && (
         <div className="meter-block">
-          <p className="mono">Идёт проверка по {reason}. Осталось {remaining.toFixed(0)} с. В базу эта попытка ещё не записана. Камера не оценивает настроение.</p>
+          <p className="mono">Check by {reasonPhrase(reason)} is running. {remaining.toFixed(0)} s left. This attempt is not in the database yet. The camera does not judge mood.</p>
           <div className="meter" role="progressbar" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={elapsed}>
             <span style={{ width: `${fill}%` }} />
           </div>
         </div>
       )}
-      {phase === "saving" && <p className="mono">Записываю итог в базу…</p>}
+      {phase === "saving" && <p className="mono">Writing the result to the database…</p>}
       <div className={phase === "recording" ? "preview-frame live" : "preview-frame"}>
-        {preview ? <img className="preview" alt="Предпросмотр камеры с зонами лба и щёк" src={preview} /> : <div className="preview" />}
+        {preview ? <img className="preview" alt="Camera preview with forehead and cheek regions" src={preview} /> : <div className="preview" />}
       </div>
       {result && (
         <section className="panel">
-          <h2>Итог</h2>
+          <h2>Result</h2>
           {showNumber ? <p className="pulse">{result.value_bpm}<span style={{ fontSize: "1rem" }}> bpm</span></p> : <p className="pulse">—</p>}
           <p>{qualityText(result)}</p>
           <p>{outcomeText(phase, result)}</p>
           <p className="muted">{result.diagnostic_summary}</p>
-          <ul>{(result.rejection_reasons ?? []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-          <p className="muted">Статус {result.validity_status ?? "неизвестен"}. Проверки качества экспериментальные и не являются вероятностью.</p>
-          {phase === "saved" && saved && <p>Запись {saved} сохранена. Файл: {databasePath}</p>}
-          {phase === "discarded" && <p>Эта попытка в базу не записана. Остановка и сбой камеры не сохраняются.</p>}
+          <ul>{(result.rejection_reasons ?? []).map((item) => <li key={item}>{item}</li>)}</ul>
+          <p className="muted">Status {result.validity_status ?? "unknown"}. Quality checks are experimental and are not a probability.</p>
+          {phase === "saved" && saved && <p>Record {saved} saved. File: {databasePath}</p>}
+          {phase === "discarded" && <p>This attempt was not written to the database. A stop or a camera failure is not saved.</p>}
           {phase !== "recording" && phase !== "saving" && (
-            <button type="button" onClick={() => { setPhase("idle"); setResult(null); setSaved(""); }}>Повторить измерение</button>
+            <button type="button" onClick={() => { setPhase("idle"); setResult(null); setSaved(""); }}>Repeat measurement</button>
           )}
           {phase === "idle" && (result.validity_status === "VALID" || result.validity_status === "INCONCLUSIVE") && sessionAstronaut.current && (
             <button type="button" onClick={() => void run(async () => {
@@ -355,10 +350,10 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
                 setPhase("idle");
                 throw reason;
               }
-            })}>Повторить запись в базу</button>
+            })}>Save to the database again</button>
           )}
           <details>
-            <summary>Техническая диагностика</summary>
+            <summary>Technical diagnostics</summary>
             <pre className="mono">{JSON.stringify(result.quality_components ?? {}, null, 2)}</pre>
           </details>
         </section>
@@ -366,7 +361,7 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
     </section>
   );
 
-  async function begin(nextReason: "расписанию" | "самочувствию") {
+  async function begin(nextReason: CheckReason) {
     await run(async () => {
       sessionAstronaut.current = astronautId;
       setReason(nextReason);
@@ -406,30 +401,30 @@ function stepClass(step: number, preview: string, phase: CheckPhase): string {
 }
 
 function qualityText(result: WorkerEvent): string {
-  if (result.validity_status === "VALID") return "Качество сигнала достаточное, оценка записана. Это не диагноз и не медицинский порог.";
-  if (result.validity_status === "INCONCLUSIVE") return "Качество сигнала недостаточное. Число не сохранено как достоверное. Повторите измерение.";
-  return "Достоверной оценки нет. Повторите измерение.";
+  if (result.validity_status === "VALID") return "Signal quality is good enough and the estimate was stored. This is not a diagnosis or a medical threshold.";
+  if (result.validity_status === "INCONCLUSIVE") return "Signal quality is not good enough. The number was not stored as trustworthy. Repeat the measurement.";
+  return "There is no trustworthy estimate. Repeat the measurement.";
 }
 
 function outcomeText(phase: CheckPhase, result: WorkerEvent): string {
-  if (phase === "saving") return "Диагностика закончилась. Записываю итог в базу.";
+  if (phase === "saving") return "The check finished. Writing the result to the database.";
   if (phase === "idle" && (result.validity_status === "VALID" || result.validity_status === "INCONCLUSIVE")) {
-    return "Итог получен, но в базу не записан. Можно повторить запись.";
+    return "The result is ready, but it is not in the database. You can save it again.";
   }
-  if (phase === "discarded") return "Надёжная запись не создана.";
-  if (result.validity_status === "VALID") return "Оценка пульса получена и записана. Это не диагноз.";
-  if (result.validity_status === "INCONCLUSIVE") return "Число пульса не показано: качества сигнала не хватило. Сама попытка записана как недостаточно данных.";
-  return "Надёжной оценки нет.";
+  if (phase === "discarded") return "No reliable record was created.";
+  if (result.validity_status === "VALID") return "A pulse estimate was obtained and stored. This is not a diagnosis.";
+  if (result.validity_status === "INCONCLUSIVE") return "No pulse number is shown: the signal was not good enough. The attempt itself was stored as insufficient data.";
+  return "There is no reliable estimate.";
 }
 
 function describeCapture(payload: WorkerEvent): string {
   const capture = payload.capture;
-  if (!capture) return "Режим камеры ещё не сообщён.";
-  const measured = capture.measured_fps != null ? `поток сейчас ${capture.measured_fps} кадр/с` : "поток ещё измеряется";
+  if (!capture) return "The camera mode has not been reported yet.";
+  const measured = capture.measured_fps != null ? `stream is ${capture.measured_fps} frames/s now` : "the stream is still being measured";
   const format = capture.yuy2_requested
-    ? `запрошен YUY2, камера дала ${capture.pixel_format ?? "неизвестный формат"}`
-    : `камера дала ${capture.pixel_format ?? "неизвестный формат"}`;
-  return `${capture.backend ?? "камера"} · ${capture.width ?? "?"}×${capture.height ?? "?"} · заявлено ${capture.nominal_fps ?? "?"} кадр/с · ${measured} · ${format}`;
+    ? `YUY2 was requested, the camera gave ${capture.pixel_format ?? "an unknown format"}`
+    : `the camera gave ${capture.pixel_format ?? "an unknown format"}`;
+  return `${capture.backend ?? "camera"} · ${capture.width ?? "?"}×${capture.height ?? "?"} · listed ${capture.nominal_fps ?? "?"} frames/s · ${measured} · ${format}`;
 }
 
 export function DetailPage({ astronautId, displayName }: { astronautId: string; displayName: string }) {
@@ -479,22 +474,22 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
     <section className="detail-page">
       {error && <p className="error">{error}</p>}
       <section className="panel">
-        <h2>История и графики</h2>
-        <p className="profile-lock">Профиль: {displayName}</p>
-        <p className="muted">Линии строятся только по сохранённым числам. Пропуск дня не рисуется как значение. Ручной ввод, камера и прибор различаются источником. Это не диагноз.</p>
+        <h2>History and charts</h2>
+        <p className="profile-lock">Profile: {displayName}</p>
+        <p className="muted">Lines use saved numbers only. A missing day is not drawn as a value. Manual entry, the camera, and an instrument stay distinct by source. This is not a diagnosis.</p>
         <div className="period">
-          <button type="button" className={period === "7" ? "active" : undefined} onClick={() => setPeriod("7")}>7 дней</button>
-          <button type="button" className={period === "30" ? "active" : undefined} onClick={() => setPeriod("30")}>30 дней</button>
-          <button type="button" className={period === "all" ? "active" : undefined} onClick={() => setPeriod("all")}>Весь срок</button>
+          <button type="button" className={period === "7" ? "active" : undefined} onClick={() => setPeriod("7")}>7 days</button>
+          <button type="button" className={period === "30" ? "active" : undefined} onClick={() => setPeriod("30")}>30 days</button>
+          <button type="button" className={period === "all" ? "active" : undefined} onClick={() => setPeriod("all")}>All time</button>
         </div>
       </section>
       <section className="panel detail-block">
-        <h2>Пульс по камере</h2>
-        {pulse.length === 0 ? <p>Достоверных значений пульса за выбранный срок нет. Недостаточный сигнал в график не попадает.</p> : <SeriesChart points={pulse} label="Достоверный пульс по камере" stroke="#7dcea0" />}
-        {pressure.length > 0 && <SeriesChart points={pressure} label="Систолическое давление" stroke="#3ec6ff" />}
-        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Температура" stroke="#e6c84a" />}
+        <h2>Camera pulse</h2>
+        {pulse.length === 0 ? <p>There is no trustworthy pulse for the selected period. An insufficient signal is not drawn on the chart.</p> : <SeriesChart points={pulse} label="Trustworthy camera pulse" stroke="#7dcea0" />}
+        {pressure.length > 0 && <SeriesChart points={pressure} label="Systolic pressure" stroke="#3ec6ff" />}
+        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Temperature" stroke="#e6c84a" />}
         <table>
-          <thead><tr><th>Время UTC</th><th>Значение</th><th>Качество</th><th>Источник</th></tr></thead>
+          <thead><tr><th>Time UTC</th><th>Value</th><th>Quality</th><th>Source</th></tr></thead>
           <tbody>
             {cameraRows.map((metric) => {
               const tone = cameraTone(metric);
@@ -509,12 +504,12 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
             })}
           </tbody>
         </table>
-        <p className="muted">Зелёная строка — пригодная запись. Жёлтая — попытка без числа. Красная — запись нельзя использовать. Это не диагноз.</p>
+        <p className="muted">A green row is a usable record. A yellow row is an attempt without a number. A red row cannot be used. This is not a diagnosis.</p>
       </section>
       <section className="panel detail-block">
-        <h2>Сон, настроение, симптомы, давление и температура</h2>
+        <h2>Sleep, mood, symptoms, blood pressure, and temperature</h2>
         <table>
-          <thead><tr><th>Время UTC</th><th>Запись</th><th>Значение</th><th>Источник</th></tr></thead>
+          <thead><tr><th>Time UTC</th><th>Record</th><th>Value</th><th>Source</th></tr></thead>
           <tbody>
             {logRows.map((row) => (
               <tr className={`tone-row ${row.tone}`} key={row.id}>
@@ -526,7 +521,7 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
             ))}
           </tbody>
         </table>
-        <p className="muted">Зелёный день журнала содержит и сон, и настроение. Жёлтый заполнен частично. Красный — ручное значение нельзя использовать. Это не диагноз.</p>
+        <p className="muted">A green journal day has both sleep and mood. A yellow day is only partly filled. A red row is a manual value that cannot be used. This is not a diagnosis.</p>
       </section>
     </section>
   );
@@ -542,12 +537,12 @@ export type DetailField = "sleep" | "mood" | "systolic" | "diastolic" | "tempera
 type RecordTone = "good" | "mid" | "bad";
 
 export const DETAIL_HINTS: Record<DetailField, string> = {
-  sleep: "Часы от 0 до 24, например 7.5. Оставьте пустым, если сон не отмечаете.",
-  mood: "Целое число от 1 до 5. Оставьте пустым, если настроение не отмечаете.",
-  systolic: "40–300 и выше диастолического. Оба числа давления или ни одного.",
-  diastolic: "20–200 и ниже систолического.",
-  temperature: "20–50 °C или пусто.",
-  form: "Отметьте хотя бы один пункт.",
+  sleep: "Hours from 0 to 24, for example 7.5. Leave empty if you are not noting sleep.",
+  mood: "A whole number from 1 to 5. Leave empty if you are not noting mood.",
+  systolic: "40–300 and above diastolic. Enter both pressure numbers or neither.",
+  diastolic: "20–200 and below systolic.",
+  temperature: "20–50 °C, or empty.",
+  form: "Enter at least one item.",
 };
 
 export function validateDetail(sleep: string, mood: string, systolic: string, diastolic: string, temperature: string, hasSymptom: boolean): Partial<Record<DetailField, string>> {
@@ -679,7 +674,7 @@ function taskClass(status: string): string {
 
 export function WikiPage() {
   return (
-    <section>
+    <section className="stack wiki">
       <article className="panel">
         <h2>What a face check does</h2>
         <p>The camera watches the forehead and cheeks. Each heartbeat changes skin color by a very small amount. The program looks for that rhythm. It does not recognize the person, and it does not keep the picture.</p>
@@ -729,39 +724,42 @@ export function SettingsPage({ session, storage, onChanged }: { session: PersonS
   }, []);
 
   return (
-    <section>
+    <section className="stack">
       {error && <p className="error">{error}</p>}
-      <section className="panel facts" aria-readonly="true" aria-label="Данные установки">
+      <section className="panel facts" aria-readonly="true" aria-label="Installation data">
         <p className="mono">{info || "Open the desktop application to read the installed version."}</p>
         <p>Data directory: {storage?.data_dir ?? "available in the desktop application"}</p>
         <p>Application data size: {storage ? `${storage.data_bytes} bytes` : "—"}</p>
         <p>Free space: {storage?.free_bytes ?? "unknown"} bytes</p>
       </section>
-      <form
-        className="row"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void api.setConfig(epoch, start, end, format).then(onChanged).then(() => setMessage("Configuration saved on this computer.")).catch((reason: unknown) => setError(String(reason)));
-        }}
-      >
-        <label>Mission epoch UTC<input value={epoch} placeholder="2026-11-14T00:00:00Z" onChange={(event) => setEpoch(event.target.value)} /></label>
-        <label>Day shift start UTC<input value={start} placeholder="06:00" onChange={(event) => setStart(event.target.value)} /></label>
-        <label>Day shift end UTC<input value={end} placeholder="21:30" onChange={(event) => setEnd(event.target.value)} /></label>
-        <label>Export format
-          <select value={format} onChange={(event) => setFormat(event.target.value)}>
-            <option>JSON</option>
-            <option>TXT</option>
-          </select>
-        </label>
-        <button type="submit">Save configuration</button>
-      </form>
       <section className="panel">
-        <h2>Что в этой версии недоступно</h2>
+        <h2>Mission clock</h2>
+        <form
+          className="row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void api.setConfig(epoch, start, end, format).then(onChanged).then(() => setMessage("Configuration saved on this computer.")).catch((reason: unknown) => setError(String(reason)));
+          }}
+        >
+          <label>Mission epoch UTC<input value={epoch} placeholder="2026-11-14T00:00:00Z" onChange={(event) => setEpoch(event.target.value)} /></label>
+          <label>Day shift start UTC<input value={start} placeholder="06:00" onChange={(event) => setStart(event.target.value)} /></label>
+          <label>Day shift end UTC<input value={end} placeholder="21:30" onChange={(event) => setEnd(event.target.value)} /></label>
+          <label>Export format
+            <select value={format} onChange={(event) => setFormat(event.target.value)}>
+              <option>JSON</option>
+              <option>TXT</option>
+            </select>
+          </label>
+          <button type="submit">Save configuration</button>
+        </form>
+      </section>
+      <section className="panel">
+        <h2>Unavailable in this version</h2>
         <ul className="missed">
-          <li>Подключённый прибор для давления и температуры не выбран. Показания вводятся вручную.</li>
-          <li>Канал к врачу на Земле не настроен. Записи остаются на этом компьютере.</li>
-          <li>Доступ бортового медика выключен. Он открывается только с разрешения этого астронавта, и в этой версии его нет.</li>
-          <li>Согласованных медицинских правил нет, поэтому программа не ставит пороги и не называет результат диагнозом.</li>
+          <li>No connected instrument is selected for blood pressure and temperature. Readings are entered by hand.</li>
+          <li>The channel to the physician on Earth is not configured. Records stay on this computer.</li>
+          <li>Onboard medic access is off. It would open only with this astronaut's permission, and this version does not provide it.</li>
+          <li>There are no agreed medical rules, so the program does not set thresholds and does not call a result a diagnosis.</li>
         </ul>
       </section>
       <aside className="info-callout" role="note">
