@@ -1,31 +1,27 @@
 1
-00:00:00,400 --> 00:00:03,200
+00:00:00,300 --> 00:00:02,800
 Health Engine: an offline desktop app for crew health checks.
 
 2
-00:00:03,600 --> 00:00:07,800
-No network, no account — everything runs on the station laptop.
+00:00:03,200 --> 00:00:06,800
+No doctor on orbit — the crew has to notice the change themselves.
 
 3
-00:00:08,200 --> 00:00:11,400
-Profiles, a 30-second face check, and manual vitals in one place.
+00:00:07,200 --> 00:00:12,800
+One local profile, a guided check, a summary with every reading.
 
 4
-00:00:11,600 --> 00:00:14,800
-Records stay in a local SQLite file on this computer.
+00:00:13,200 --> 00:00:17,800
+One valid check: 65.9 bpm. Three methods agree within 0.2.
 
 5
-00:00:15,200 --> 00:00:18,600
-One valid check: 65.9 bpm from a laptop camera.
+00:00:18,200 --> 00:00:22,800
+Built around NASA Human Research Program hazards and risks.
 
 6
-00:00:18,800 --> 00:00:20,800
-POS, CHROM and GREEN agree within 0.2 bpm.
+00:00:23,200 --> 00:00:26,800
+Weak signal? No number — and the reason is stored with the attempt.
 
 7
-00:00:21,200 --> 00:00:25,600
-Frame timing, motion, light and method agreement must all pass.
-
-8
-00:00:26,200 --> 00:00:29,600
-Screening support, not a diagnosis. Open source.
+00:00:27,200 --> 00:00:29,700
+Open source, MIT license, AI-assisted video. Not a diagnostic device.
