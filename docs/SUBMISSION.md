@@ -18,7 +18,7 @@ Updated: 15.11.2026. Everything below was checked against the live repository.
 | Project link | https://github.com/frost12W/NASA-Health-Engine |
 | Demo link (video, 30 s) | https://raw.githubusercontent.com/frost12W/NASA-Health-Engine/main/docs/media/health-engine-30s.mp4 |
 | Subtitles (SRT) | https://raw.githubusercontent.com/frost12W/NASA-Health-Engine/main/docs/media/health-engine-30s.srt |
-| Pitch deck (7 slides) | https://github.com/frost12W/NASA-Health-Engine/tree/main/docs/deck |
+| Pitch deck (7 slides, PPTX) | https://raw.githubusercontent.com/frost12W/NASA-Health-Engine/main/docs/deck/health-engine-pitch-7.pptx |`n| Deck folder with slide renders | https://github.com/frost12W/NASA-Health-Engine/tree/main/docs/deck |
 | License | https://github.com/frost12W/NASA-Health-Engine/blob/main/LICENSE |
 
 ## Project description (English)
