@@ -63,3 +63,34 @@ npm run build
 Product behavior comes from `docs/technical-specification.txt`. The system shape comes from `docs/architecture-document.txt`. If they disagree, the technical specification wins. The first prototype report is evidence from an experiment, not a second specification.
 
 Решения по методам и границам заявлений: `docs/DECISIONS.md`.
+
+## License
+
+MIT — see `LICENSE`. Third-party components keep their own licenses; the full
+list (Tauri, React, MediaPipe, OpenCV, NumPy, SciPy, SQLite) is in
+`docs/SOURCES.md`, section 5.
+
+## NASA data and resources used
+
+The product uses NASA Human Research Program material as its scientific frame:
+
+- 5 Hazards of Human Spaceflight — https://www.nasa.gov/hrp/hazards/
+- Risks of Human Spaceflight — https://www.nasa.gov/hrp/risks/
+- Ongoing HRP Research in Space — https://www.nasa.gov/hrp/ongoing-hrp-research/
+
+These pages define the hazards and risks the interface refers to. No NASA
+dataset was used for signal processing: the pulse estimate comes from the
+POS/CHROM algorithms and a local MediaPipe model. This limitation is stated
+in `docs/VALIDATION.md`.
+
+## Sources and references
+
+Every source, license and dataset (used and planned) is listed in
+`docs/SOURCES.md`: NASA HRP, AHA, NHS, Wang et al. 2017 (POS), de Haan and
+Jeanne 2013 (CHROM), MediaPipe, and the rPPG datasets PURE, UBFC-rPPG, MMPD,
+LGI-PPGI, iBVP that would be needed for validation.
+
+## Use of AI (SI) tools
+
+Disclosed in `docs/AI-DISCLOSURE.md`: which tools were used, for what, what the
+team verified, and what AI did not do.
