@@ -5,16 +5,16 @@ import "./App.css";
 import { api, desktopAvailable } from "./api";
 import { LoginGate } from "./login";
 import { CheckFlow } from "./check-flow";
-import { DetailPage, HomePage, SettingsPage, WikiPage, type CheckReason } from "./pages";
+import { DetailPage, HomePage, SettingsPage, WikiPage, errorText, type CheckReason } from "./pages";
 import type { AlertRow, MissionClock, PersonSession, StorageStatus, SyncStatus } from "./types";
 
 type Page = "home" | "check" | "history" | "settings";
 
 const NAV: Array<{ id: Page; label: string }> = [
-  { id: "home", label: "Сводка" },
-  { id: "check", label: "Проверка" },
-  { id: "history", label: "История" },
-  { id: "settings", label: "Настройки" },
+  { id: "home", label: "Summary" },
+  { id: "check", label: "Check" },
+  { id: "history", label: "History" },
+  { id: "settings", label: "Settings" },
 ];
 
 function browserClock(): MissionClock {
@@ -46,7 +46,7 @@ export default function App() {
   const [missionPrompt, setMissionPrompt] = useState<"start" | "resume" | null>(null);
   const [missionError, setMissionError] = useState("");
   const [session, setSession] = useState<PersonSession | null>(null);
-  const [checkReason, setCheckReason] = useState<CheckReason>("самочувствию");
+  const [checkReason, setCheckReason] = useState<CheckReason>("feel");
   const desktop = desktopAvailable();
 
   async function refreshShell() {
@@ -97,7 +97,7 @@ export default function App() {
       setClock(await api.clock());
       setMissionPrompt(null);
     } catch (reason) {
-      setMissionError(reason instanceof Error ? reason.message : String(reason));
+      setMissionError(errorText(reason));
     }
   }
 
@@ -129,7 +129,7 @@ export default function App() {
             </button>
           )}
           {missionState === "running" && (
-            <button type="button" className="mission-hold" aria-label="Pause mission timer" onClick={() => void api.pauseMission().then(() => api.clock().then(setClock)).catch((reason: unknown) => setMissionError(String(reason)))}>
+            <button type="button" className="mission-hold" aria-label="Pause mission timer" onClick={() => void api.pauseMission().then(() => api.clock().then(setClock)).catch((reason: unknown) => setMissionError(errorText(reason)))}>
               ⏸
             </button>
           )}
@@ -214,12 +214,12 @@ export default function App() {
             <>
               <SettingsPage session={session} storage={storage} onChanged={refreshShell} />
               <details className="panel">
-                <summary>Как устроена проверка</summary>
+                <summary>How a check works</summary>
                 <WikiPage />
               </details>
             </>
           )}
-          {!session && <p className="muted">Войдите в личный профиль, чтобы открыть Health Engine.</p>}
+          {!session && <p className="muted">Sign in to a personal profile to open Health Engine.</p>}
           </div>
           <p className="disclaimer">
             Health Engine supports health checks. It does not diagnose, treat, or decide fitness for duty. A camera pulse

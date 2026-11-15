@@ -5,7 +5,31 @@ import profileMark from "./assets/profile-mark.png";
 import { api, desktopAvailable } from "./api";
 import type { HomeCard, JournalRow, MetricRow, PersonSession, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
 
-export type CheckReason = "расписанию" | "самочувствию";
+export type CheckReason = "schedule" | "feel";
+
+export function reasonLabel(reason: CheckReason): string {
+  return reason === "schedule" ? "Scheduled check" : "Check on how you feel";
+}
+
+// The local core still answers two profile errors in Russian. The interface is English, so those
+// replies are replaced here by origin instead of being shown as they arrive.
+export const CORE_PROFILE_ERRORS = {
+  noProfile: "There is no profile on this computer yet.",
+  loginMismatch: "This login does not match the profile on this computer. Someone else's records stay closed.",
+} as const;
+
+function hasNonAscii(text: string): boolean {
+  return /[^\x00-\x7F]/.test(text);
+}
+
+export function errorText(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
+export function coreError(reason: unknown, fallback: string): string {
+  const text = errorText(reason);
+  return hasNonAscii(text) ? fallback : text;
+}
 
 export function HomePage({ session, sync, onLeave, onStart, onOpenHistory }: {
   session: PersonSession;
@@ -58,54 +82,54 @@ export function HomePage({ session, sync, onLeave, onStart, onOpenHistory }: {
           <p className="profile-role">{session.role}</p>
         </div>
         <dl className="identity">
-          <div><dt>Возраст</dt><dd>{session.ageYears}</dd></div>
-          <div><dt>Имя</dt><dd>{session.displayName}</dd></div>
-          <div><dt>Роль</dt><dd>{session.role}</dd></div>
-          <div><dt>Тестовый пароль</dt><dd className="mono">{session.sessionPassword}</dd></div>
+          <div><dt>Age</dt><dd>{session.ageYears}</dd></div>
+          <div><dt>Name</dt><dd>{session.displayName}</dd></div>
+          <div><dt>Role</dt><dd>{session.role}</dd></div>
+          <div><dt>Test password</dt><dd className="mono">{session.sessionPassword}</dd></div>
         </dl>
-        <p className="muted">Тестовый пароль только в этом окне. В базу он не записывается. Это не учётная запись NASA.</p>
+        <p className="muted">The test password lives in this window only. It is not written to the database. This is not a NASA account.</p>
         <p className="crew-id">PROFILE ID {card?.crew_identifier ?? session.crewIdentifier}</p>
-        <button type="button" onClick={onLeave}>Выйти</button>
+        <button type="button" onClick={onLeave}>Sign out</button>
       </article>
       <div className="summary-stack">
         {error && <p className="error">{error}</p>}
         <section className="panel">
-          <h2>Сводка</h2>
-          <p className="muted">Последние показатели этого профиля. Источник указан у каждого числа. Это не диагноз.</p>
+          <h2>Summary</h2>
+          <p className="muted">The latest readings for this profile. Every number carries its source. This is not a diagnosis.</p>
           <div className="summary-actions">
-            <button type="button" onClick={() => onStart("самочувствию")}>Начать проверку</button>
-            <button type="button" onClick={() => onStart("расписанию")}>Плановая проверка</button>
-            <button type="button" onClick={onOpenHistory}>История и графики</button>
+            <button type="button" onClick={() => onStart("feel")}>Start a check</button>
+            <button type="button" onClick={() => onStart("schedule")}>Scheduled check</button>
+            <button type="button" onClick={onOpenHistory}>History and charts</button>
           </div>
-          <p>Плановая задача сегодня: <span className={taskClass(card?.task_display_status ?? "DUE")}>{card?.task_display_status ?? "DUE"}</span></p>
+          <p>Scheduled task today: <span className={taskClass(card?.task_display_status ?? "DUE")}>{card?.task_display_status ?? "DUE"}</span></p>
           <dl className="reading-list">
-            <Reading label="Пульс" value={card?.pulse_bpm ?? null} unit="bpm" source={card?.pulse_source ?? latestCamera?.source_type ?? null} at={latestCamera?.measured_at_utc ?? null} />
-            <Reading label="Давление" value={card?.last_systolic != null ? `${card.last_systolic}/${card.last_diastolic ?? "—"}` : null} unit="mmHg" source={latestSource(metrics, "BLOOD_PRESSURE_SYSTOLIC")} at={latestTime(metrics, "BLOOD_PRESSURE_SYSTOLIC")} />
-            <Reading label="Температура" value={latestValue(metrics, "BODY_TEMPERATURE")} unit="°C" source={latestSource(metrics, "BODY_TEMPERATURE")} at={latestTime(metrics, "BODY_TEMPERATURE")} />
-            <Reading label="Сон" value={card?.sleep_hours ?? null} unit="ч" source={card?.sleep_source ?? null} at={journal.find((entry) => entry.entry_type === "SLEEP")?.recorded_at_utc ?? null} />
-            <Reading label="Настроение" value={card?.wellbeing ?? null} unit="/ 5" source={card?.wellbeing_source ?? null} at={lastMood?.recorded_at_utc ?? null} />
+            <Reading label="Pulse" value={card?.pulse_bpm ?? null} unit="bpm" source={card?.pulse_source ?? latestCamera?.source_type ?? null} at={latestCamera?.measured_at_utc ?? null} />
+            <Reading label="Blood pressure" value={card?.last_systolic != null ? `${card.last_systolic}/${card.last_diastolic ?? "—"}` : null} unit="mmHg" source={latestSource(metrics, "BLOOD_PRESSURE_SYSTOLIC")} at={latestTime(metrics, "BLOOD_PRESSURE_SYSTOLIC")} />
+            <Reading label="Temperature" value={latestValue(metrics, "BODY_TEMPERATURE")} unit="°C" source={latestSource(metrics, "BODY_TEMPERATURE")} at={latestTime(metrics, "BODY_TEMPERATURE")} />
+            <Reading label="Sleep" value={card?.sleep_hours ?? null} unit="h" source={card?.sleep_source ?? null} at={journal.find((entry) => entry.entry_type === "SLEEP")?.recorded_at_utc ?? null} />
+            <Reading label="Mood" value={card?.wellbeing ?? null} unit="/ 5" source={card?.wellbeing_source ?? null} at={lastMood?.recorded_at_utc ?? null} />
           </dl>
-          <p>Качество последнего пульса по камере: {cameraQuality(latestCamera)}</p>
-          <p className="muted">Последняя отметка самочувствия: {lastMood ? `${lastMood.value} из 5, ${lastMood.recorded_at_utc}` : "ещё нет"}.</p>
+          <p>Quality of the latest camera pulse: {cameraQuality(latestCamera)}</p>
+          <p className="muted">Latest wellbeing entry: {lastMood ? `${lastMood.value} of 5, ${lastMood.recorded_at_utc}` : "none yet"}.</p>
           <div>
-            <h3>Пропущено сегодня</h3>
-            {missed.length === 0 ? <p>На сегодня эти отметки уже есть.</p> : <ul className="missed">{missed.map((item) => <li key={item}>{item}</li>)}</ul>}
+            <h3>Missing today</h3>
+            {missed.length === 0 ? <p>Today's entries are already in.</p> : <ul className="missed">{missed.map((item) => <li key={item}>{item}</li>)}</ul>}
           </div>
         </section>
         <section className="panel">
-          <h2>Динамика</h2>
-          <p className="muted">Линия строится только по сохранённым числам. Пропуски не заполняются. Камера даёт только пульс.</p>
-          {pulsePoints.length === 0 ? <p>График пульса появится после достоверной проверки камерой.</p> : <SeriesChart points={pulsePoints} label="Тренд замеров" stroke="#7dcea0" unit="bpm" />}
-          {pressurePoints.length > 0 && <SeriesChart points={pressurePoints} label="Тренд замеров" stroke="#3ec6ff" unit="mmHg" />}
-          {temperaturePoints.length > 0 && <SeriesChart points={temperaturePoints} label="Тренд замеров" stroke="#e6c84a" unit="°C" />}
+          <h2>Trends</h2>
+          <p className="muted">The line uses saved numbers only. Gaps are not filled in. The camera gives pulse only.</p>
+          {pulsePoints.length === 0 ? <p>The pulse chart appears after a reliable camera check.</p> : <SeriesChart points={pulsePoints} label="Measurement trend" stroke="#7dcea0" unit="bpm" />}
+          {pressurePoints.length > 0 && <SeriesChart points={pressurePoints} label="Measurement trend" stroke="#3ec6ff" unit="mmHg" />}
+          {temperaturePoints.length > 0 && <SeriesChart points={temperaturePoints} label="Measurement trend" stroke="#e6c84a" unit="°C" />}
         </section>
         <section className="panel">
-          <h2>Передача врачу</h2>
+          <h2>Transfer to doctor</h2>
           <p><span className={transfer.tone}>{transfer.label}</span></p>
-          <p>Ожидает отправки: {sync?.waiting_count ?? sync?.local_only_count ?? "—"}</p>
-          <p>Отправлено: {sync?.sent_count ?? 0}</p>
-          <p>Ошибка отправки: {sync?.error_count ?? 0}</p>
-          <p className="muted">Канал к врачу на Земле сейчас недоступен. Записи остаются на этом компьютере и уйдут, когда канал будет настроен. Бортовой медик в этой версии доступ не имеет.</p>
+          <p>Waiting to send: {sync?.waiting_count ?? sync?.local_only_count ?? "—"}</p>
+          <p>Sent: {sync?.sent_count ?? 0}</p>
+          <p>Send errors: {sync?.error_count ?? 0}</p>
+          <p className="muted">The link to the ground doctor is unavailable right now. Records stay on this computer and leave when a channel is configured. The onboard medic has no access in this version.</p>
         </section>
       </div>
     </section>
@@ -123,11 +147,11 @@ function Reading({ label, value, unit, source, at }: { label: string; value: num
 }
 
 export function sourceLabel(source: string | null): string {
-  if (source === "CAMERA_DERIVED") return "камера";
-  if (source === "SELF_REPORTED") return "ручной ввод";
-  if (source === "EXTERNAL_DEVICE") return "прибор";
-  if (source === "SIMULATED") return "тестовый образец";
-  return "нет записи";
+  if (source === "CAMERA_DERIVED") return "camera";
+  if (source === "SELF_REPORTED") return "manual entry";
+  if (source === "EXTERNAL_DEVICE") return "device";
+  if (source === "SIMULATED") return "test sample";
+  return "no record";
 }
 
 function latestValue(metrics: MetricRow[], metricType: string): number | null {
@@ -143,21 +167,21 @@ function latestTime(metrics: MetricRow[], metricType: string): string | null {
 }
 
 function cameraQuality(metric: MetricRow | undefined): string {
-  if (!metric) return "измерения ещё нет";
-  if (metric.validity_status === "VALID") return "достаточно для записи оценки. Это не диагноз.";
-  if (metric.validity_status === "INCONCLUSIVE") return "недостаточно. Число не сохранено как достоверное.";
-  return "нельзя использовать. Число не является оценкой пульса.";
+  if (!metric) return "no measurement yet";
+  if (metric.validity_status === "VALID") return "sufficient for a saved estimate. This is not a diagnosis.";
+  if (metric.validity_status === "INCONCLUSIVE") return "insufficient. The number is not saved as reliable.";
+  return "unusable. The number is not a pulse estimate.";
 }
 
 function missedToday(today: string, metrics: MetricRow[], journal: JournalRow[]): string[] {
   const missed: string[] = [];
   const hasMetric = (metricType: string, source?: string) => metrics.some((metric) => metric.metric_type === metricType && metric.measured_at_utc.startsWith(today) && metric.value != null && (!source || metric.source_type === source));
   const hasJournal = (entryType: string) => journal.some((entry) => entry.entry_type === entryType && entry.recorded_at_utc.startsWith(today));
-  if (!hasMetric("PULSE_RATE", "CAMERA_DERIVED")) missed.push("Пульс по камере");
-  if (!hasMetric("BLOOD_PRESSURE_SYSTOLIC")) missed.push("Давление");
-  if (!hasMetric("BODY_TEMPERATURE")) missed.push("Температура");
-  if (!hasJournal("SLEEP")) missed.push("Сон");
-  if (!hasJournal("MOOD")) missed.push("Настроение");
+  if (!hasMetric("PULSE_RATE", "CAMERA_DERIVED")) missed.push("Camera pulse");
+  if (!hasMetric("BLOOD_PRESSURE_SYSTOLIC")) missed.push("Blood pressure");
+  if (!hasMetric("BODY_TEMPERATURE")) missed.push("Temperature");
+  if (!hasJournal("SLEEP")) missed.push("Sleep");
+  if (!hasJournal("MOOD")) missed.push("Mood");
   return missed;
 }
 
@@ -165,10 +189,10 @@ function transferLabel(sync: SyncStatus | null): { label: string; tone: string }
   const errors = sync?.error_count ?? 0;
   const waiting = sync?.waiting_count ?? sync?.local_only_count ?? 0;
   const sent = sync?.sent_count ?? 0;
-  if (errors > 0) return { label: "Ошибка отправки", tone: "status bad" };
-  if (waiting > 0) return { label: "Ожидает отправки", tone: "status due" };
-  if (sent > 0) return { label: "Отправлено", tone: "status done" };
-  return { label: "Ожидает отправки", tone: "status due" };
+  if (errors > 0) return { label: "Send error", tone: "status bad" };
+  if (waiting > 0) return { label: "Waiting to send", tone: "status due" };
+  if (sent > 0) return { label: "Sent", tone: "status done" };
+  return { label: "Waiting to send", tone: "status due" };
 }
 
 export function CrewField({ label, hint, error, children }: { label: string; hint: string; error?: string; children: ReactNode }) {
@@ -181,16 +205,6 @@ export function CrewField({ label, hint, error, children }: { label: string; hin
   );
 }
 
-const READINESS_RU: Record<string, string> = {
-  "Face landmarks are unavailable, so a face pulse check cannot start.": "Модель лица недоступна, проверку начать нельзя.",
-  "Change the light so the face is neither dark nor washed out.": "Поправьте свет: лицо не должно быть тёмным или засвеченным.",
-  "Hold still and look toward the camera.": "Не двигайтесь и смотрите в камеру.",
-  "Place one face in the frame.": "В кадре должно быть одно лицо.",
-  "Leave only one person in the frame.": "В кадре должен остаться один человек.",
-  "The forehead and cheeks are not clear enough.": "Лоб и щёки видны недостаточно ясно.",
-  "Hold still. The face check can start.": "Можно начинать. Держите лицо неподвижно.",
-};
-
 type CheckPhase = "idle" | "recording" | "saving" | "saved" | "discarded";
 
 export function HealthCheckPage({ astronautId, displayName, launchReason, onSettled }: {
@@ -202,9 +216,9 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
   const [cameras, setCameras] = useState<Array<{ device_index: number; label: string }>>([]);
   const [deviceIndex, setDeviceIndex] = useState(0);
   const [preview, setPreview] = useState("");
-  const [message, setMessage] = useState("Откройте камеру. Проверка идёт для этого профиля.");
+  const [message, setMessage] = useState("Open the camera. The check runs for this profile.");
   const [canStart, setCanStart] = useState(false);
-  const [captureText, setCaptureText] = useState("Камера не открыта.");
+  const [captureText, setCaptureText] = useState("Camera is not open.");
   const [elapsed, setElapsed] = useState(0);
   const [duration, setDuration] = useState(30);
   const [result, setResult] = useState<WorkerEvent | null>(null);
@@ -227,8 +241,8 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
       const payload = event.payload;
       if (payload.event === "preview") {
         if (payload.jpeg_base64) setPreview(`data:image/jpeg;base64,${payload.jpeg_base64}`);
-        const raw = payload.readiness?.message ?? "Камера открыта.";
-        setMessage(READINESS_RU[raw] ?? raw);
+        const raw = payload.readiness?.message ?? "Camera is open.";
+        setMessage(raw);
         setCanStart(Boolean(payload.readiness?.can_start));
         setCaptureText(describeCapture(payload));
       }
@@ -281,68 +295,69 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
   return (
     <section>
       <p>
-        Это 30-секундная проверка пульса для {displayName}. Камера оценивает пульс по изменению цвета кожи и не определяет настроение.
-        Это не диагноз. Видео в файл не пишется. В базу попадает только итог, и он остаётся на этом компьютере.
+        This is a 30-second pulse check for {displayName}. The camera estimates pulse from small changes in skin colour and
+        does not read mood. It is not a diagnosis. No video is written to a file. Only the result reaches the database,
+        and it stays on this computer.
       </p>
       <ol className="steps">
-        <li className={stepClass(1, preview, phase)}>Личный профиль открыт. Проверка идёт только для этого астронавта.</li>
-        <li className={stepClass(2, preview, phase)}>Откройте камеру. Картинка остаётся на экране и в базу не сохраняется.</li>
-        <li className={stepClass(3, preview, phase)}>Запустите проверку по расписанию или по самочувствию. Сигнал 30 секунд копится в памяти.</li>
-        <li className={stepClass(4, preview, phase)}>Когда время вышло, итог сам записывается в локальную базу. Число пульса показывается только если проверки качества пройдены.</li>
+        <li className={stepClass(1, preview, phase)}>The personal profile is open. The check runs for this astronaut only.</li>
+        <li className={stepClass(2, preview, phase)}>Open the camera. The picture stays on screen and is not saved to the database.</li>
+        <li className={stepClass(3, preview, phase)}>Start a scheduled check or a check on how you feel. The signal collects in memory for 30 seconds.</li>
+        <li className={stepClass(4, preview, phase)}>When time is up, the result is saved to the local database on its own. A pulse number appears only if the quality checks pass.</li>
       </ol>
-      <p className="mono">Файл базы на этом компьютере: {databasePath || "откройте Health Engine, чтобы увидеть путь"}</p>
+      <p className="mono">Database file on this computer: {databasePath || "open Health Engine to see the path"}</p>
       {error && <p className="error">{error}</p>}
       <div className="row">
-        <p className="profile-lock">Профиль: {displayName}</p>
-        <label>Камера
+        <p className="profile-lock">Profile: {displayName}</p>
+        <label>Camera
           <select value={deviceIndex} onChange={(event) => setDeviceIndex(Number(event.target.value))}>
-            {cameras.length === 0 && <option value={0}>Список пуст</option>}
+            {cameras.length === 0 && <option value={0}>List is empty</option>}
             {cameras.map((camera) => (
               <option key={camera.device_index} value={camera.device_index}>{camera.label}</option>
             ))}
           </select>
         </label>
-        <button type="button" disabled={busy || recording} onClick={() => void run(async () => setCameras((await api.cameras()).cameras))}>Найти камеры</button>
-        <button type="button" disabled={busy || recording} onClick={() => void run(async () => { await api.openCamera(deviceIndex); setSaved(""); setResult(null); setPhase("idle"); })}>Открыть камеру</button>
+        <button type="button" disabled={busy || recording} onClick={() => void run(async () => setCameras((await api.cameras()).cameras))}>Find cameras</button>
+        <button type="button" disabled={busy || recording} onClick={() => void run(async () => { await api.openCamera(deviceIndex); setSaved(""); setResult(null); setPhase("idle"); })}>Open camera</button>
         {launchReason ? (
           <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin(launchReason)}>
-            Начать измерение пульса
+            Start pulse measurement
           </button>
         ) : (
           <>
-            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("расписанию")}>Проверка по расписанию</button>
-            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("самочувствию")}>Проверка по самочувствию</button>
+            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("schedule")}>Scheduled check</button>
+            <button type="button" disabled={busy || recording || !canStart || !astronautId} onClick={() => void begin("feel")}>Check on how you feel</button>
           </>
         )}
-        <button type="button" disabled={busy || phase !== "recording"} onClick={() => void run(() => api.stopMeasurement())}>Остановить</button>
+        <button type="button" disabled={busy || phase !== "recording"} onClick={() => void run(() => api.stopMeasurement())}>Stop</button>
       </div>
       <p>{message}</p>
       <p className="mono">{captureText}</p>
       {phase === "recording" && (
         <div className="meter-block">
-          <p className="mono">Идёт проверка по {reason}. Осталось {remaining.toFixed(0)} с. В базу эта попытка ещё не записана. Камера не оценивает настроение.</p>
+          <p className="mono">Check in progress: {reason ? reasonLabel(reason) : "check"}. {remaining.toFixed(0)} s left. This attempt is not in the database yet. The camera does not read mood.</p>
           <div className="meter" role="progressbar" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={elapsed}>
             <span style={{ width: `${fill}%` }} />
           </div>
         </div>
       )}
-      {phase === "saving" && <p className="mono">Записываю итог в базу…</p>}
+      {phase === "saving" && <p className="mono">Saving the result to the database…</p>}
       <div className={phase === "recording" ? "preview-frame live" : "preview-frame"}>
-        {preview ? <img className="preview" alt="Предпросмотр камеры с зонами лба и щёк" src={preview} /> : <div className="preview" />}
+        {preview ? <img className="preview" alt="Camera preview with forehead and cheek zones" src={preview} /> : <div className="preview" />}
       </div>
       {result && (
         <section className="panel">
-          <h2>Итог</h2>
+          <h2>Result</h2>
           {showNumber ? <p className="pulse">{result.value_bpm}<span style={{ fontSize: "1rem" }}> bpm</span></p> : <p className="pulse">—</p>}
           <p>{qualityText(result)}</p>
           <p>{outcomeText(phase, result)}</p>
           <p className="muted">{result.diagnostic_summary}</p>
           <ul>{(result.rejection_reasons ?? []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-          <p className="muted">Статус {result.validity_status ?? "неизвестен"}. Проверки качества экспериментальные и не являются вероятностью.</p>
-          {phase === "saved" && saved && <p>Запись {saved} сохранена. Файл: {databasePath}</p>}
-          {phase === "discarded" && <p>Эта попытка в базу не записана. Остановка и сбой камеры не сохраняются.</p>}
+          <p className="muted">Status {result.validity_status ?? "unknown"}. The quality checks are experimental and are not a probability.</p>
+          {phase === "saved" && saved && <p>Record {saved} saved. File: {databasePath}</p>}
+          {phase === "discarded" && <p>This attempt is not in the database. Stops and camera failures are not saved.</p>}
           {phase !== "recording" && phase !== "saving" && (
-            <button type="button" onClick={() => { setPhase("idle"); setResult(null); setSaved(""); }}>Повторить измерение</button>
+            <button type="button" onClick={() => { setPhase("idle"); setResult(null); setSaved(""); }}>Repeat measurement</button>
           )}
           {phase === "idle" && (result.validity_status === "VALID" || result.validity_status === "INCONCLUSIVE") && sessionAstronaut.current && (
             <button type="button" onClick={() => void run(async () => {
@@ -355,24 +370,24 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
                 setPhase("idle");
                 throw reason;
               }
-            })}>Повторить запись в базу</button>
+            })}>Retry saving to the database</button>
           )}
           <details>
-            <summary>Техническая диагностика</summary>
+            <summary>Technical diagnostics</summary>
             <pre className="mono">{JSON.stringify(result.quality_components ?? {}, null, 2)}</pre>
           </details>
         </section>
       )}
       {result && result.validity_status === "VALID" && typeof result.value_bpm === "number" && (
         <section className="panel">
-          <h2>Форма пульсовой волны</h2>
+          <h2>Pulse waveform</h2>
           <PulseWave bpm={result.value_bpm} />
         </section>
       )}
     </section>
   );
 
-  async function begin(nextReason: "расписанию" | "самочувствию") {
+  async function begin(nextReason: "schedule" | "feel") {
     await run(async () => {
       sessionAstronaut.current = astronautId;
       setReason(nextReason);
@@ -412,30 +427,30 @@ function stepClass(step: number, preview: string, phase: CheckPhase): string {
 }
 
 function qualityText(result: WorkerEvent): string {
-  if (result.validity_status === "VALID") return "Качество сигнала достаточное, оценка записана. Это не диагноз и не медицинский порог.";
-  if (result.validity_status === "INCONCLUSIVE") return "Качество сигнала недостаточное. Число не сохранено как достоверное. Повторите измерение.";
-  return "Достоверной оценки нет. Повторите измерение.";
+  if (result.validity_status === "VALID") return "Signal quality is sufficient and the estimate was saved. This is not a diagnosis and not a medical threshold.";
+  if (result.validity_status === "INCONCLUSIVE") return "Signal quality is insufficient. The number is not saved as reliable. Repeat the measurement.";
+  return "There is no reliable estimate. Repeat the measurement.";
 }
 
 function outcomeText(phase: CheckPhase, result: WorkerEvent): string {
-  if (phase === "saving") return "Диагностика закончилась. Записываю итог в базу.";
+  if (phase === "saving") return "The check has finished. Saving the result to the database.";
   if (phase === "idle" && (result.validity_status === "VALID" || result.validity_status === "INCONCLUSIVE")) {
-    return "Итог получен, но в базу не записан. Можно повторить запись.";
+    return "The result is in, but it is not saved to the database yet. You can retry saving.";
   }
-  if (phase === "discarded") return "Надёжная запись не создана.";
-  if (result.validity_status === "VALID") return "Оценка пульса получена и записана. Это не диагноз.";
-  if (result.validity_status === "INCONCLUSIVE") return "Число пульса не показано: качества сигнала не хватило. Сама попытка записана как недостаточно данных.";
-  return "Надёжной оценки нет.";
+  if (phase === "discarded") return "No reliable record was created.";
+  if (result.validity_status === "VALID") return "The pulse estimate was received and saved. This is not a diagnosis.";
+  if (result.validity_status === "INCONCLUSIVE") return "No pulse number is shown: signal quality was not enough. The attempt itself is saved as insufficient data.";
+  return "There is no reliable estimate.";
 }
 
 function describeCapture(payload: WorkerEvent): string {
   const capture = payload.capture;
-  if (!capture) return "Режим камеры ещё не сообщён.";
-  const measured = capture.measured_fps != null ? `поток сейчас ${capture.measured_fps} кадр/с` : "поток ещё измеряется";
+  if (!capture) return "The camera mode has not been reported yet.";
+  const measured = capture.measured_fps != null ? `stream now ${capture.measured_fps} fps` : "stream still being measured";
   const format = capture.yuy2_requested
-    ? `запрошен YUY2, камера дала ${capture.pixel_format ?? "неизвестный формат"}`
-    : `камера дала ${capture.pixel_format ?? "неизвестный формат"}`;
-  return `${capture.backend ?? "камера"} · ${capture.width ?? "?"}×${capture.height ?? "?"} · заявлено ${capture.nominal_fps ?? "?"} кадр/с · ${measured} · ${format}`;
+    ? `YUY2 requested, camera gave ${capture.pixel_format ?? "unknown format"}`
+    : `camera gave ${capture.pixel_format ?? "unknown format"}`;
+  return `${capture.backend ?? "camera"} · ${capture.width ?? "?"}×${capture.height ?? "?"} · advertised ${capture.nominal_fps ?? "?"} fps · ${measured} · ${format}`;
 }
 
 export function DetailPage({ astronautId, displayName }: { astronautId: string; displayName: string }) {
@@ -485,22 +500,22 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
     <section className="detail-page">
       {error && <p className="error">{error}</p>}
       <section className="panel">
-        <h2>История и графики</h2>
-        <p className="profile-lock">Профиль: {displayName}</p>
-        <p className="muted">Линии строятся только по сохранённым числам. Пропуск дня не рисуется как значение. Ручной ввод, камера и прибор различаются источником. Это не диагноз.</p>
+        <h2>History and charts</h2>
+        <p className="profile-lock">Profile: {displayName}</p>
+        <p className="muted">Lines use saved numbers only. A missing day is not drawn as a value. Manual entry, camera, and device differ by source. This is not a diagnosis.</p>
         <div className="period">
-          <button type="button" className={period === "7" ? "active" : undefined} onClick={() => setPeriod("7")}>7 дней</button>
-          <button type="button" className={period === "30" ? "active" : undefined} onClick={() => setPeriod("30")}>30 дней</button>
-          <button type="button" className={period === "all" ? "active" : undefined} onClick={() => setPeriod("all")}>Весь срок</button>
+          <button type="button" className={period === "7" ? "active" : undefined} onClick={() => setPeriod("7")}>7 days</button>
+          <button type="button" className={period === "30" ? "active" : undefined} onClick={() => setPeriod("30")}>30 days</button>
+          <button type="button" className={period === "all" ? "active" : undefined} onClick={() => setPeriod("all")}>All time</button>
         </div>
       </section>
       <section className="panel detail-block">
-        <h2>Пульс по камере</h2>
-        {pulse.length === 0 ? <p>Достоверных значений пульса за выбранный срок нет. Недостаточный сигнал в график не попадает.</p> : <SeriesChart points={pulse} label="Тренд замеров" stroke="#7dcea0" unit="bpm" />}
-        {pressure.length > 0 && <SeriesChart points={pressure} label="Тренд замеров" stroke="#3ec6ff" unit="mmHg" />}
-        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Тренд замеров" stroke="#e6c84a" unit="°C" />}
+        <h2>Camera pulse</h2>
+        {pulse.length === 0 ? <p>No reliable pulse values in the selected period. Insufficient signal never reaches the chart.</p> : <SeriesChart points={pulse} label="Measurement trend" stroke="#7dcea0" unit="bpm" />}
+        {pressure.length > 0 && <SeriesChart points={pressure} label="Measurement trend" stroke="#3ec6ff" unit="mmHg" />}
+        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Measurement trend" stroke="#e6c84a" unit="°C" />}
         <table>
-          <thead><tr><th>Время UTC</th><th>Значение</th><th>Качество</th><th>Источник</th></tr></thead>
+          <thead><tr><th>Time (UTC)</th><th>Value</th><th>Quality</th><th>Source</th></tr></thead>
           <tbody>
             {cameraRows.map((metric) => {
               const tone = cameraTone(metric);
@@ -515,12 +530,12 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
             })}
           </tbody>
         </table>
-        <p className="muted">Зелёная строка — пригодная запись. Жёлтая — попытка без числа. Красная — запись нельзя использовать. Это не диагноз.</p>
+        <p className="muted">A green row is a usable record. Amber is an attempt without a number. Red is a record that cannot be used. This is not a diagnosis.</p>
       </section>
       <section className="panel detail-block">
-        <h2>Сон, настроение, симптомы, давление и температура</h2>
+        <h2>Sleep, mood, symptoms, blood pressure, and temperature</h2>
         <table>
-          <thead><tr><th>Время UTC</th><th>Запись</th><th>Значение</th><th>Источник</th></tr></thead>
+          <thead><tr><th>Time (UTC)</th><th>Entry</th><th>Value</th><th>Source</th></tr></thead>
           <tbody>
             {logRows.map((row) => (
               <tr className={`tone-row ${row.tone}`} key={row.id}>
@@ -532,7 +547,7 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
             ))}
           </tbody>
         </table>
-        <p className="muted">Зелёный день журнала содержит и сон, и настроение. Жёлтый заполнен частично. Красный — ручное значение нельзя использовать. Это не диагноз.</p>
+        <p className="muted">A green journal day has both sleep and mood. Amber is filled in partly. Red is a manual value that cannot be used. This is not a diagnosis.</p>
       </section>
     </section>
   );
@@ -548,12 +563,12 @@ export type DetailField = "sleep" | "mood" | "systolic" | "diastolic" | "tempera
 type RecordTone = "good" | "mid" | "bad";
 
 export const DETAIL_HINTS: Record<DetailField, string> = {
-  sleep: "Часы от 0 до 24, например 7.5. Оставьте пустым, если сон не отмечаете.",
-  mood: "Целое число от 1 до 5. Оставьте пустым, если настроение не отмечаете.",
-  systolic: "40–300 и выше диастолического. Оба числа давления или ни одного.",
-  diastolic: "20–200 и ниже систолического.",
-  temperature: "20–50 °C или пусто.",
-  form: "Отметьте хотя бы один пункт.",
+  sleep: "Hours from 0 to 24, for example 7.5. Leave it empty if you are not recording sleep.",
+  mood: "A whole number from 1 to 5. Leave it empty if you are not recording mood.",
+  systolic: "40–300 and above the diastolic value. Enter both blood pressure numbers or neither.",
+  diastolic: "20–200 and below the systolic value.",
+  temperature: "20–50 °C, or leave it empty.",
+  form: "Select at least one item.",
 };
 
 export function validateDetail(sleep: string, mood: string, systolic: string, diastolic: string, temperature: string, hasSymptom: boolean): Partial<Record<DetailField, string>> {
@@ -715,9 +730,9 @@ export function PulseWave({ bpm = 70 }: { bpm?: number }) {
         className="pulse-wave-canvas"
         viewBox={`0 0 ${PULSE_WAVE_WIDTH} ${PULSE_WAVE_HEIGHT}`}
         role="img"
-        aria-label={`Схематичный сигнал пульсовой волны для ${Math.round(rate)} bpm`}
+        aria-label={`Schematic pulse waveform for ${Math.round(rate)} bpm`}
       >
-        <desc>Демонстрационная кривая по трём гармоникам. Не является измерением.</desc>
+        <desc>Demo curve built from three harmonics. Not a measurement.</desc>
         <g className="pulse-wave-grid" aria-hidden="true">
           {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((step) => (
             <line key={`vertical-${step}`} x1={step * 64} y1={0} x2={step * 64} y2={PULSE_WAVE_HEIGHT} />
@@ -728,7 +743,7 @@ export function PulseWave({ bpm = 70 }: { bpm?: number }) {
         </g>
         <path d={path} fill="none" stroke="#6FD3A6" strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       </svg>
-      <figcaption>Схематичный сигнал (демо). Не измерение, а иллюстрация формы пульсовой волны.</figcaption>
+      <figcaption>Schematic signal (demo). Not a measurement, but an illustration of the waveform shape.</figcaption>
     </figure>
   );
 }
@@ -742,7 +757,7 @@ export function SeriesChart({ points, label, stroke, unit }: { points: MetricRow
   ));
 
   if (samples.length < 3) {
-    return <p className="chart-empty">Мало данных для графика: нужно минимум 3 замера.</p>;
+    return <p className="chart-empty">Not enough data for a chart: at least 3 readings are needed.</p>;
   }
 
   const ordered = [...samples];
@@ -816,9 +831,9 @@ export function SeriesChart({ points, label, stroke, unit }: { points: MetricRow
         className="chart"
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
         role="img"
-        aria-label={`${label}. Единицы: ${unit}.`}
+        aria-label={`${label}. Units: ${unit}.`}
       >
-        <desc>{`${label}: точек ${ordered.length}, значения от ${formatAxisValue(minValue)} до ${formatAxisValue(maxValue)} ${unit}.`}</desc>
+        <desc>{`${label}: ${ordered.length} points, values from ${formatAxisValue(minValue)} to ${formatAxisValue(maxValue)} ${unit}.`}</desc>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={stroke} stopOpacity="0.26" />
@@ -870,7 +885,7 @@ export function SeriesChart({ points, label, stroke, unit }: { points: MetricRow
           {unit}
         </text>
         <text className="chart-axis-title" x={CHART_PAD.left + plotWidth / 2} y={CHART_HEIGHT - 8} textAnchor="middle">
-          время (UTC)
+          time (UTC)
         </text>
       </svg>
       <figcaption className="chart-caption">{label}</figcaption>
@@ -981,7 +996,7 @@ export function SettingsPage({ session, storage, onChanged }: { session: PersonS
   return (
     <section>
       {error && <p className="error">{error}</p>}
-      <section className="panel facts" aria-readonly="true" aria-label="Данные установки">
+      <section className="panel facts" aria-readonly="true" aria-label="Installation data">
         <p className="mono">{info || "Open the desktop application to read the installed version."}</p>
         <p>Data directory: {storage?.data_dir ?? "available in the desktop application"}</p>
         <p>Application data size: {storage ? `${storage.data_bytes} bytes` : "—"}</p>
@@ -1006,12 +1021,12 @@ export function SettingsPage({ session, storage, onChanged }: { session: PersonS
         <button type="submit">Save configuration</button>
       </form>
       <section className="panel">
-        <h2>Что в этой версии недоступно</h2>
+        <h2>Not available in this version</h2>
         <ul className="missed">
-          <li>Подключённый прибор для давления и температуры не выбран. Показания вводятся вручную.</li>
-          <li>Канал к врачу на Земле не настроен. Записи остаются на этом компьютере.</li>
-          <li>Доступ бортового медика выключен. Он открывается только с разрешения этого астронавта, и в этой версии его нет.</li>
-          <li>Согласованных медицинских правил нет, поэтому программа не ставит пороги и не называет результат диагнозом.</li>
+          <li>No blood pressure and temperature device is selected. Readings are entered by hand.</li>
+          <li>No link to the ground doctor is configured. Records stay on this computer.</li>
+          <li>Access for the onboard medic is switched off. It opens only with this astronaut's permission, and this version has none.</li>
+          <li>There are no agreed medical rules, so the program sets no thresholds and does not call a result a diagnosis.</li>
         </ul>
       </section>
       <aside className="info-callout" role="note">
