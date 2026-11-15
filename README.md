@@ -58,6 +58,15 @@ cargo test --manifest-path src-tauri\Cargo.toml
 npm run build
 ```
 
+## Demo
+
+| Что | Ссылка |
+|---|---|
+| 30-second demo video (English subtitles) | https://raw.githubusercontent.com/frost12W/NASA-Health-Engine/main/docs/media/health-engine-30s.mp4 |
+| Subtitles (SRT) | https://raw.githubusercontent.com/frost12W/NASA-Health-Engine/main/docs/media/health-engine-30s.srt |
+| Pitch deck, 7 slides (English) | https://raw.githubusercontent.com/frost12W/NASA-Health-Engine/main/docs/deck/health-engine-pitch-7.pptx |
+| Validation results | `docs/VALIDATION.md` |
+
 ## Controlling documents
 
 Product behavior comes from `docs/technical-specification.txt`. The system shape comes from `docs/architecture-document.txt`. If they disagree, the technical specification wins. The first prototype report is evidence from an experiment, not a second specification.
