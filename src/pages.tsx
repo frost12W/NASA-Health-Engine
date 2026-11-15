@@ -5,6 +5,7 @@ import profileMark from "./assets/profile-mark.png";
 import { api, desktopAvailable } from "./api";
 import { NASA_HAZARDS, NASA_HAZARDS_PAGE, NASA_RESEARCH_PAGE, NASA_RISKS_PAGE } from "./nasa";
 import { TrendChart } from "./trend-chart";
+import { UpdatePanel } from "./updates";
 import { VisorFrame, type VisorState } from "./visor-frame";
 import type { HomeCard, JournalRow, MetricRow, PersonSession, ReferenceLibrary, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
 
@@ -825,6 +826,7 @@ export function SettingsPage({ session, storage, onChanged }: { session: PersonS
           <li>There are no agreed medical rules, so the program does not set thresholds and does not call a result a diagnosis.</li>
         </ul>
       </section>
+      <UpdatePanel />
       <NasaSourcePanel />
       <ReferencePanel />
       <aside className="info-callout" role="note">

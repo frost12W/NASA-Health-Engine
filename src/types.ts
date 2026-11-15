@@ -116,6 +116,14 @@ export interface StorageStatus {
   warning: string | null;
 }
 
+export interface UpdateReport {
+  online: boolean;
+  current_version: string;
+  remote_version: string | null;
+  downloaded_path: string | null;
+  message: string;
+}
+
 export interface AppInfo {
   version: string;
   data_dir: string;

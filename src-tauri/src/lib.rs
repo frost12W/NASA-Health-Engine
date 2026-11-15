@@ -3,6 +3,7 @@ use tauri::Manager;
 mod clock;
 mod commands;
 mod db;
+mod updates;
 mod worker;
 
 use commands::AppState;
@@ -53,6 +54,7 @@ pub fn run() {
             commands::add_journal_entry,
             commands::add_manual_entries,
             commands::reference_library,
+            commands::check_for_update,
             commands::sync_status,
             commands::list_alerts,
             commands::acknowledge_alert,

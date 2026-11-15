@@ -1,6 +1,7 @@
 // DESKTOP COMMANDS EXPOSED TO THE LOCAL INTERFACE.
 use crate::clock;
 use crate::db::{self, MissionConfig};
+use crate::updates::{self, UpdateReport};
 use crate::worker::Worker;
 use chrono::Utc;
 use rusqlite::Connection;
@@ -290,6 +291,11 @@ pub fn reference_library(compare: bool) -> Result<Value, String> {
         return Err("The reference check stopped before writing a report.".to_string());
     }
     Ok(payload)
+}
+
+#[tauri::command]
+pub fn check_for_update() -> UpdateReport {
+    updates::check_and_download(&updates::feed_address(), &updates::update_directory())
 }
 
 #[tauri::command]

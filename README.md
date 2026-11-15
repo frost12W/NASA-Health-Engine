@@ -1,3 +1,28 @@
+<p align="center">
+  <img src="docs/official-documentation.jpg" alt="NASA Space Apps Challenge, Bishkek, Ala-Too University. Created for all. Official documentation." width="960">
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Rust">
+  <img src="https://img.shields.io/badge/Tauri-24C8DB?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React">
+  <img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite">
+  <img src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows">
+</p>
+
+## Install on this Windows computer
+
+The block below starts `HE-Installer\HE-Installer.exe`, the setup program for this Windows user. It opens the Health Engine Setup window. Records already stored on the computer stay in place. From the project folder, copy the command and paste it into PowerShell.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\HE-Installer\Install-HealthEngine.ps1
+```
+
+Add `-Silent` to install without the window. Add `-Prefix` and a folder path to choose where the program files go.
+
 # Health Engine
 
 Offline desktop program for crew health checks on the computer where it is installed. A space station and a lunar base use the same rule: after the software is on that computer, camera checks, records, reminders, and exports work with no network.
@@ -61,3 +86,7 @@ npm run build
 ## Controlling documents
 
 Product behavior comes from `docs/technical-specification.txt`. The system shape comes from `docs/architecture-document.txt`. If they disagree, the technical specification wins. The first prototype report is evidence from an experiment, not a second specification.
+
+## Acknowledgement
+
+Thank you to the NASA Space Apps Challenge for the opportunity to build this project in Bishkek, at Ala-Too University, for everyone.
