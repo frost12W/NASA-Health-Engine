@@ -3,18 +3,18 @@ import { useEffect, useState } from "react";
 import logo from "./assets/health-engine-logo.png";
 import "./App.css";
 import { api, desktopAvailable } from "./api";
-import { DetailPage, HealthCheckPage, HomePage, SettingsPage, TasksPage, WikiPage } from "./pages";
-import type { AlertRow, MissionClock, StorageStatus, SyncStatus } from "./types";
+import { LoginGate } from "./login";
+import { CheckFlow } from "./check-flow";
+import { DetailPage, HomePage, SettingsPage, WikiPage, type CheckReason } from "./pages";
+import type { AlertRow, MissionClock, PersonSession, StorageStatus, SyncStatus } from "./types";
 
-type Page = "home" | "check" | "detail" | "tasks" | "wiki" | "settings";
+type Page = "home" | "check" | "history" | "settings";
 
 const NAV: Array<{ id: Page; label: string }> = [
-  { id: "home", label: "Profile" },
-  { id: "check", label: "Camera monitoring" },
-  { id: "detail", label: "Detail monitoring" },
-  { id: "tasks", label: "Health achieve" },
-  { id: "wiki", label: "Health Engine wiki" },
-  { id: "settings", label: "Setup & backups" },
+  { id: "home", label: "Сводка" },
+  { id: "check", label: "Проверка" },
+  { id: "history", label: "История" },
+  { id: "settings", label: "Настройки" },
 ];
 
 function browserClock(): MissionClock {
@@ -45,6 +45,8 @@ export default function App() {
   const [metHover, setMetHover] = useState(false);
   const [missionPrompt, setMissionPrompt] = useState<"start" | "resume" | null>(null);
   const [missionError, setMissionError] = useState("");
+  const [session, setSession] = useState<PersonSession | null>(null);
+  const [checkReason, setCheckReason] = useState<CheckReason>("самочувствию");
   const desktop = desktopAvailable();
 
   async function refreshShell() {
@@ -146,7 +148,7 @@ export default function App() {
             <h2 id="mission-title">{missionPrompt === "start" ? "Start mission clock" : "Resume mission clock"}</h2>
             <p>
               {missionPrompt === "start"
-                ? "This clock times every crew health event from mission start. Press again to start."
+                ? "This clock times health events for this profile from mission start. Press again to start."
                 : "The frozen clock will run again from the paused time. Press again to resume."}
             </p>
             <div className="row">
@@ -170,7 +172,7 @@ export default function App() {
       {alerts.map((alert) => (
         <div className="banner warn" key={alert.alert_id}>
           <span>
-            System alert: {alert.rule_id}. Status {alert.status}. This is not a health diagnosis.
+            Rule {alert.rule_id}. Status {alert.status}. This warning follows a configured rule and does not diagnose.
           </span>
           {alert.status === "OPEN" && (
             <button type="button" onClick={() => void api.acknowledge(alert.alert_id).then(refreshShell)}>
@@ -189,13 +191,35 @@ export default function App() {
           ))}
         </nav>
         <main>
-          <div className="page" key={page}>
-          {page === "home" && <HomePage sync={sync} onChanged={refreshShell} />}
-          {page === "check" && <HealthCheckPage />}
-          {page === "detail" && <DetailPage />}
-          {page === "tasks" && <TasksPage />}
-          {page === "wiki" && <WikiPage />}
-          {page === "settings" && <SettingsPage storage={storage} onChanged={refreshShell} />}
+          <div className="page" key={session ? `${page}-${session.astronautId}` : page}>
+          {session && page === "home" && (
+            <HomePage
+              session={session}
+              sync={sync}
+              onLeave={() => setSession(null)}
+              onStart={(reason) => { setCheckReason(reason); setPage("check"); }}
+              onOpenHistory={() => setPage("history")}
+            />
+          )}
+          {session && page === "check" && (
+            <CheckFlow
+              astronautId={session.astronautId}
+              displayName={session.displayName}
+              reason={checkReason}
+              onDone={() => { setPage("home"); void refreshShell(); }}
+            />
+          )}
+          {session && page === "history" && <DetailPage astronautId={session.astronautId} displayName={session.displayName} />}
+          {session && page === "settings" && (
+            <>
+              <SettingsPage session={session} storage={storage} onChanged={refreshShell} />
+              <details className="panel">
+                <summary>Как устроена проверка</summary>
+                <WikiPage />
+              </details>
+            </>
+          )}
+          {!session && <p className="muted">Войдите в личный профиль, чтобы открыть Health Engine.</p>}
           </div>
           <p className="disclaimer">
             Health Engine supports health checks. It does not diagnose, treat, or decide fitness for duty. A camera pulse
@@ -203,6 +227,7 @@ export default function App() {
           </p>
         </main>
       </div>
+      {!session && <LoginGate onEnter={setSession} />}
     </div>
   );
 }

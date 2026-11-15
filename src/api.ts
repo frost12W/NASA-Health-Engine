@@ -36,6 +36,10 @@ export const api = {
   snapshot: () => call<string>("write_month_snapshot"),
   exportRecords: (astronautId: string) => call<string>("export_records", { astronautId }),
   astronauts: () => call<Astronaut[]>("list_astronauts"),
+  bindPerson: (displayName: string, ageYears: number, role: string) =>
+    call<Astronaut>("bind_person", { displayName, ageYears, role }),
+  matchPerson: (displayName: string) => call<Astronaut>("match_person", { displayName }),
+  overwritePerson: (displayName: string) => call<Astronaut>("overwrite_person_name", { displayName }),
   createAstronaut: (displayName: string, ageYears: number, role: string, systolic: number, diastolic: number, pulse: number) =>
     call<string>("create_astronaut", { displayName, ageYears, role, systolic, diastolic, pulse }),
   startMission: () => call<void>("start_mission"),
@@ -48,8 +52,8 @@ export const api = {
   symptoms: () => call<Array<{ id: string; label: string }>>("journal_catalog"),
   addJournal: (astronautId: string, entryType: string, value: string) =>
     call<string>("add_journal_entry", { astronautId, entryType, value }),
-  addManual: (astronautId: string, systolic: string, diastolic: string, temperature: string) =>
-    call<number>("add_manual_entries", { astronautId, systolic, diastolic, temperature }),
+  addManual: (astronautId: string, systolic: string, diastolic: string, temperature: string, source: string) =>
+    call<number>("add_manual_entries", { astronautId, systolic, diastolic, temperature, source }),
   sync: () => call<SyncStatus>("sync_status"),
   alerts: () => call<AlertRow[]>("list_alerts"),
   acknowledge: (alertId: string) => call<void>("acknowledge_alert", { alertId }),
