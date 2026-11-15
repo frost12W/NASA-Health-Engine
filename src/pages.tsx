@@ -916,6 +916,21 @@ export function WikiPage() {
   return (
     <section>
       <article className="panel">
+        <h2>NASA Human Research Program context</h2>
+        <p>The five hazards below come from the NASA Human Research Program. The app does not measure them. It keeps the crew member's own observations next to them, so a change is visible early.</p>
+        <table>
+          <thead><tr><th>Hazard</th><th>What this app does about it</th></tr></thead>
+          <tbody>
+            <tr><td>Isolation and confinement</td><td>Daily mood, sleep and symptom entries with a per-profile history.</td></tr>
+            <tr><td>Distance from Earth</td><td>Every record stays on this computer, so a check works with no link to the ground.</td></tr>
+            <tr><td>Altered gravity</td><td>Blood pressure and temperature are typed by the crew; the camera adds a pulse estimate.</td></tr>
+            <tr><td>Closed environment</td><td>One local profile per crew member, no account, no upload.</td></tr>
+            <tr><td>Radiation</td><td>Not modelled. The app does not measure dose and does not estimate radiation risk.</td></tr>
+          </tbody>
+        </table>
+        <p className="muted">Sources: 5 Hazards of Human Spaceflight (https://www.nasa.gov/hrp/hazards/), Risks of Human Spaceflight (https://www.nasa.gov/hrp/risks/), Ongoing HRP Research in Space (https://www.nasa.gov/hrp/ongoing-hrp-research/). NASA does not endorse this project.</p>
+      </article>
+      <article className="panel">
         <h2>What a face check does</h2>
         <p>The camera watches the forehead and cheeks. Each heartbeat changes skin color by a very small amount. The program looks for that rhythm. It does not recognize the person, and it does not keep the picture.</p>
       </article>
