@@ -1,6 +1,6 @@
 // CREW PAGES FOR CHECKS, RECORDS, TASKS, HELP, AND SETTINGS.
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import profileMark from "./assets/profile-mark.png";
 import { api, desktopAvailable } from "./api";
 import type { HomeCard, JournalRow, MetricRow, PersonSession, StorageStatus, SyncStatus, TaskView, WorkerEvent } from "./types";
@@ -95,9 +95,9 @@ export function HomePage({ session, sync, onLeave, onStart, onOpenHistory }: {
         <section className="panel">
           <h2>Динамика</h2>
           <p className="muted">Линия строится только по сохранённым числам. Пропуски не заполняются. Камера даёт только пульс.</p>
-          {pulsePoints.length === 0 ? <p>График пульса появится после достоверной проверки камерой.</p> : <SeriesChart points={pulsePoints} label="Пульс по камере" stroke="#7dcea0" />}
-          {pressurePoints.length > 0 && <SeriesChart points={pressurePoints} label="Систолическое давление" stroke="#3ec6ff" />}
-          {temperaturePoints.length > 0 && <SeriesChart points={temperaturePoints} label="Температура" stroke="#e6c84a" />}
+          {pulsePoints.length === 0 ? <p>График пульса появится после достоверной проверки камерой.</p> : <SeriesChart points={pulsePoints} label="Тренд замеров" stroke="#7dcea0" unit="bpm" />}
+          {pressurePoints.length > 0 && <SeriesChart points={pressurePoints} label="Тренд замеров" stroke="#3ec6ff" unit="mmHg" />}
+          {temperaturePoints.length > 0 && <SeriesChart points={temperaturePoints} label="Тренд замеров" stroke="#e6c84a" unit="°C" />}
         </section>
         <section className="panel">
           <h2>Передача врачу</h2>
@@ -363,6 +363,12 @@ export function HealthCheckPage({ astronautId, displayName, launchReason, onSett
           </details>
         </section>
       )}
+      {result && result.validity_status === "VALID" && typeof result.value_bpm === "number" && (
+        <section className="panel">
+          <h2>Форма пульсовой волны</h2>
+          <PulseWave bpm={result.value_bpm} />
+        </section>
+      )}
     </section>
   );
 
@@ -490,9 +496,9 @@ export function DetailPage({ astronautId, displayName }: { astronautId: string; 
       </section>
       <section className="panel detail-block">
         <h2>Пульс по камере</h2>
-        {pulse.length === 0 ? <p>Достоверных значений пульса за выбранный срок нет. Недостаточный сигнал в график не попадает.</p> : <SeriesChart points={pulse} label="Достоверный пульс по камере" stroke="#7dcea0" />}
-        {pressure.length > 0 && <SeriesChart points={pressure} label="Систолическое давление" stroke="#3ec6ff" />}
-        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Температура" stroke="#e6c84a" />}
+        {pulse.length === 0 ? <p>Достоверных значений пульса за выбранный срок нет. Недостаточный сигнал в график не попадает.</p> : <SeriesChart points={pulse} label="Тренд замеров" stroke="#7dcea0" unit="bpm" />}
+        {pressure.length > 0 && <SeriesChart points={pressure} label="Тренд замеров" stroke="#3ec6ff" unit="mmHg" />}
+        {temperatures.length > 0 && <SeriesChart points={temperatures} label="Тренд замеров" stroke="#e6c84a" unit="°C" />}
         <table>
           <thead><tr><th>Время UTC</th><th>Значение</th><th>Качество</th><th>Источник</th></tr></thead>
           <tbody>
@@ -624,22 +630,251 @@ function JournalIcon() {
   );
 }
 
-function SeriesChart({ points, label, stroke }: { points: MetricRow[]; label: string; stroke: string }) {
-  const ordered = [...points].reverse();
-  const values = ordered.map((point) => point.value ?? 0);
-  const min = Math.min(...values) - 5;
-  const max = Math.max(...values) + 5;
-  const span = Math.max(max - min, 1);
-  const step = ordered.length === 1 ? 0 : 100 / (ordered.length - 1);
-  const path = ordered.map((point, index) => {
-    const x = index * step;
-    const y = 100 - (((point.value ?? min) - min) / span) * 100;
-    return `${index === 0 ? "M" : "L"}${x},${y}`;
+const CHART_WIDTH = 640;
+const CHART_HEIGHT = 220;
+const CHART_PAD = { left: 58, right: 20, top: 18, bottom: 48 };
+
+type ChartSample = { value: number; atUtc: number | null };
+
+function parseUtcMs(text: string): number | null {
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function utcDayKey(atUtc: number): string {
+  return new Date(atUtc).toISOString().slice(0, 10);
+}
+
+function formatUtcTick(atUtc: number, withDate: boolean): string {
+  const date = new Date(atUtc);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const time = `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+  return withDate ? `${pad(date.getUTCDate())}.${pad(date.getUTCMonth() + 1)} ${time}` : time;
+}
+
+function formatAxisValue(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  if (Math.abs(value) >= 100 || Number.isInteger(value)) return String(Math.round(value));
+  return value.toFixed(1);
+}
+
+// Deterministic PRNG (mulberry32) so the demo wave never changes between renders.
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const PULSE_WAVE_WIDTH = 640;
+const PULSE_WAVE_HEIGHT = 160;
+const PULSE_WAVE_PAD = 12;
+const PULSE_WAVE_SECONDS = 3;
+const PULSE_WAVE_SAMPLES = 260;
+
+export function buildPulseWave(bpm: number, seconds = PULSE_WAVE_SECONDS, count = PULSE_WAVE_SAMPLES): number[] {
+  if (count < 2) return [];
+  const rate = Number.isFinite(bpm) && bpm > 0 ? bpm : 70;
+  const beatsPerSecond = rate / 60;
+  const random = seededRandom(Math.round(rate * 100) + 0x5f3759df);
+  const raw: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const at = (index / (count - 1)) * seconds;
+    const phase = 2 * Math.PI * beatsPerSecond * at;
+    // Three harmonics give the asymmetric systolic peak and the dicrotic notch of a PPG.
+    const fundamental = Math.sin(phase);
+    const second = 0.45 * Math.sin(2 * phase + 0.85);
+    const third = 0.2 * Math.sin(3 * phase + 1.85);
+    const noise = (random() + random() - 1) * 0.035;
+    raw.push(fundamental + second + third + noise);
+  }
+  const min = Math.min(...raw);
+  const max = Math.max(...raw);
+  const span = max - min;
+  if (!(span > 1e-9)) return raw.map(() => 0.5);
+  // Invert so the systolic peak points up, then mirror in time: steep upstroke first,
+  // slower decay with the dicrotic notch after it, as in a photoplethysmogram.
+  return raw.map((value) => 1 - (value - min) / span).reverse();
+}
+
+export function PulseWave({ bpm = 70 }: { bpm?: number }) {
+  const samples = useMemo(() => buildPulseWave(bpm), [bpm]);
+  const rate = Number.isFinite(bpm) && bpm > 0 ? bpm : 70;
+  const path = samples.map((value, index) => {
+    const x = (index / (samples.length - 1)) * PULSE_WAVE_WIDTH;
+    const y = PULSE_WAVE_PAD + (1 - value) * (PULSE_WAVE_HEIGHT - PULSE_WAVE_PAD * 2);
+    return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
   }).join(" ");
   return (
-    <svg className="chart" viewBox="0 0 100 100" role="img" aria-label={label}>
-      <path d={path} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
+    <figure className="pulse-wave">
+      <svg
+        className="pulse-wave-canvas"
+        viewBox={`0 0 ${PULSE_WAVE_WIDTH} ${PULSE_WAVE_HEIGHT}`}
+        role="img"
+        aria-label={`Схематичный сигнал пульсовой волны для ${Math.round(rate)} bpm`}
+      >
+        <desc>Демонстрационная кривая по трём гармоникам. Не является измерением.</desc>
+        <g className="pulse-wave-grid" aria-hidden="true">
+          {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((step) => (
+            <line key={`vertical-${step}`} x1={step * 64} y1={0} x2={step * 64} y2={PULSE_WAVE_HEIGHT} />
+          ))}
+          {[0, 1, 2, 3, 4, 5].map((step) => (
+            <line key={`horizontal-${step}`} x1={0} y1={step * 32} x2={PULSE_WAVE_WIDTH} y2={step * 32} />
+          ))}
+        </g>
+        <path d={path} fill="none" stroke="#6FD3A6" strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <figcaption>Схематичный сигнал (демо). Не измерение, а иллюстрация формы пульсовой волны.</figcaption>
+    </figure>
+  );
+}
+
+export function SeriesChart({ points, label, stroke, unit }: { points: MetricRow[]; label: string; stroke: string; unit: string }) {
+  const gradientId = `chart-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const samples: ChartSample[] = points.flatMap((point) => (
+    typeof point.value === "number" && Number.isFinite(point.value)
+      ? [{ value: point.value, atUtc: parseUtcMs(point.measured_at_utc) }]
+      : []
+  ));
+
+  if (samples.length < 3) {
+    return <p className="chart-empty">Мало данных для графика: нужно минимум 3 замера.</p>;
+  }
+
+  const ordered = [...samples];
+  const timeKnown = ordered.every((sample) => sample.atUtc != null);
+  if (timeKnown) {
+    ordered.sort((left, right) => (left.atUtc as number) - (right.atUtc as number));
+  } else {
+    ordered.reverse();
+  }
+  const positions = timeKnown
+    ? ordered.map((sample) => sample.atUtc as number)
+    : ordered.map((_, index) => index);
+
+  const plotWidth = CHART_WIDTH - CHART_PAD.left - CHART_PAD.right;
+  const plotHeight = CHART_HEIGHT - CHART_PAD.top - CHART_PAD.bottom;
+  const plotRight = CHART_PAD.left + plotWidth;
+  const plotBottom = CHART_PAD.top + plotHeight;
+  const timeSpan = positions[positions.length - 1] - positions[0];
+  const xFor = (position: number) => timeSpan > 0
+    ? CHART_PAD.left + ((position - positions[0]) / timeSpan) * plotWidth
+    : CHART_PAD.left + plotWidth / 2;
+
+  const values = ordered.map((sample) => sample.value);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const flat = maxValue - minValue < 1e-9;
+  const valuePad = flat ? 0 : Math.max((maxValue - minValue) * 0.18, 0.5);
+  const lowValue = minValue - valuePad;
+  const highValue = maxValue + valuePad;
+  const valueSpan = highValue - lowValue;
+  const yFor = (value: number) => flat
+    ? CHART_PAD.top + plotHeight / 2
+    : plotBottom - ((value - lowValue) / valueSpan) * plotHeight;
+
+  const yTicks = flat
+    ? [{ value: minValue, y: CHART_PAD.top + plotHeight / 2 }]
+    : [maxValue, (maxValue + minValue) / 2, minValue].map((value) => ({ value, y: yFor(value) }));
+
+  const sameUtcDay = timeKnown && utcDayKey(positions[0]) === utcDayKey(positions[positions.length - 1]);
+  const xTicks: Array<{ x: number; anchor: "start" | "middle" | "end"; label: string }> = [];
+  if (timeKnown) {
+    const seenX = new Set<number>();
+    if (timeSpan > 0) {
+      const indexes = [0, Math.floor((ordered.length - 1) / 2), ordered.length - 1];
+      const anchors = ["start", "middle", "end"] as const;
+      indexes.forEach((index, tickIndex) => {
+        const x = xFor(positions[index]);
+        if (seenX.has(x)) return;
+        seenX.add(x);
+        xTicks.push({ x, anchor: anchors[tickIndex], label: formatUtcTick(positions[index], !sameUtcDay) });
+      });
+    } else {
+      xTicks.push({
+        x: xFor(positions[0]),
+        anchor: "middle",
+        label: formatUtcTick(positions[0], true),
+      });
+    }
+  }
+
+  const linePath = ordered.map((sample, index) => (
+    `${index === 0 ? "M" : "L"}${xFor(positions[index]).toFixed(2)},${yFor(sample.value).toFixed(2)}`
+  )).join(" ");
+  const firstX = xFor(positions[0]).toFixed(2);
+  const lastX = xFor(positions[positions.length - 1]).toFixed(2);
+  const areaPath = `${linePath} L${lastX},${plotBottom} L${firstX},${plotBottom} Z`;
+
+  return (
+    <figure className="chart-figure">
+      <svg
+        className="chart"
+        viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+        role="img"
+        aria-label={`${label}. Единицы: ${unit}.`}
+      >
+        <desc>{`${label}: точек ${ordered.length}, значения от ${formatAxisValue(minValue)} до ${formatAxisValue(maxValue)} ${unit}.`}</desc>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={stroke} stopOpacity="0.26" />
+            <stop offset="100%" stopColor={stroke} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <g className="chart-grid" aria-hidden="true">
+          {[0, 1, 2, 3].map((step) => {
+            const x = CHART_PAD.left + (plotWidth / 3) * step;
+            return <line key={`vertical-${step}`} x1={x} y1={CHART_PAD.top} x2={x} y2={plotBottom} />;
+          })}
+          {yTicks.map((tick) => (
+            <line key={`horizontal-${tick.value}`} x1={CHART_PAD.left} y1={tick.y} x2={plotRight} y2={tick.y} />
+          ))}
+        </g>
+        {!flat && <path d={areaPath} fill={`url(#${gradientId})`} stroke="none" />}
+        <path d={linePath} fill="none" stroke={stroke} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        {ordered.map((sample, index) => (
+          <circle
+            key={`${sample.atUtc ?? index}-${index}`}
+            cx={xFor(positions[index])}
+            cy={yFor(sample.value)}
+            r={3.2}
+            fill="#070b10"
+            stroke={stroke}
+            strokeWidth={1.8}
+          />
+        ))}
+        <path
+          className="chart-axis"
+          d={`M${CHART_PAD.left},${CHART_PAD.top} L${CHART_PAD.left},${plotBottom} L${plotRight},${plotBottom}`}
+          fill="none"
+        />
+        {yTicks.map((tick) => (
+          <text key={`y-label-${tick.value}-${tick.y}`} x={CHART_PAD.left - 8} y={tick.y + 4} textAnchor="end">
+            {formatAxisValue(tick.value)}
+          </text>
+        ))}
+        {xTicks.map((tick) => (
+          <text key={`x-label-${tick.x}`} x={tick.x} y={plotBottom + 20} textAnchor={tick.anchor}>
+            {tick.label}
+          </text>
+        ))}
+        <text
+          className="chart-axis-title"
+          transform={`translate(16 ${CHART_PAD.top + plotHeight / 2}) rotate(-90)`}
+          textAnchor="middle"
+        >
+          {unit}
+        </text>
+        <text className="chart-axis-title" x={CHART_PAD.left + plotWidth / 2} y={CHART_HEIGHT - 8} textAnchor="middle">
+          время (UTC)
+        </text>
+      </svg>
+      <figcaption className="chart-caption">{label}</figcaption>
+    </figure>
   );
 }
 

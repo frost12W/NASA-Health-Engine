@@ -246,7 +246,18 @@ th { color: var(--silver); font-weight: 560; letter-spacing: 0.08em; text-transf
 h1, h2 { font-weight: 560; margin: 0 0 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; }
 h1 { font-size: 1.25rem; }
 ul { padding-left: 1.1rem; }
-.chart { width: 100%; height: 180px; background: #070b10; border: 1px solid var(--line); }
+.chart { display: block; width: 100%; height: auto; background: #070b10; border: 1px solid var(--line); }
+.chart text { fill: #8ea0b3; font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: 11px; letter-spacing: 0.02em; }
+.chart .chart-axis-title { fill: #c5d0dc; font-size: 11px; letter-spacing: 0.06em; }
+.chart .chart-grid line { stroke: #8ea0b3; stroke-opacity: 0.16; stroke-dasharray: 3 5; }
+.chart .chart-axis { stroke: rgba(197, 208, 220, 0.42); stroke-width: 1; }
+.chart-figure { margin: 0.5rem 0 1rem; }
+.chart-caption { margin-top: 0.35rem; color: #c5d0dc; font-size: 0.78rem; letter-spacing: 0.06em; }
+.chart-empty { margin: 0.5rem 0 1rem; padding: 0.55rem 0.7rem; border: 1px dashed var(--line); color: #8ea0b3; }
+.pulse-wave { margin: 0.5rem 0 0; }
+.pulse-wave-canvas { display: block; width: 100%; height: auto; background: #070b10; border: 1px solid var(--line); }
+.pulse-wave-grid line { stroke: #6fd3a6; stroke-opacity: 0.12; stroke-dasharray: 2 6; }
+.pulse-wave figcaption { margin-top: 0.4rem; color: #8ea0b3; font-size: 0.82rem; line-height: 1.35; }
 
 @keyframes fade {
   from { opacity: 0; }
